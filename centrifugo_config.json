@@ -1,0 +1,20 @@
+{
+  "admin": true,
+  "admin_password": "secret",
+  "admin_secret": "secret",
+  "api_key": "my_api_key",
+  "allowed_origins": ["*"],
+  "namespaces": [
+    {
+      "name": "trade_hub",
+      "allow_anonymous": true,
+      "allow_subscribe_for_anonymous": true,
+      "allow_publish_for_anonymous": true,
+      "publish": true,
+      "presence": true,
+      "join_leave": true,
+      "history_size": 100,
+      "history_ttl": "300s"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+# Reputation Service — test dependencies (install with: pip install -r requirements-test.txt)
+fastapi==0.104.1
+uvicorn==0.23.2
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+
+# Test-only
+pytest==7.4.3
+httpx==0.25.2
+pytest-asyncio==0.21.1

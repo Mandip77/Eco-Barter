@@ -1,0 +1,11 @@
+{
+  "name": "eco-barter",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "nx run-many --target=dev --all"
+  },
+  "devDependencies": {
+    "nx": "22.6.4"
+  }
+}

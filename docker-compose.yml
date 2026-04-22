@@ -1,0 +1,210 @@
+# version: '3.8' # Obsolete in latest docker compose
+
+services:
+  # --------------------------------------------------------------------------
+  # API Gateway (Traefik)
+  # --------------------------------------------------------------------------
+  traefik:
+    image: traefik:v2.10
+    user: root
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "8081:80"
+      - "8080:8080" # Dashboard
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    networks:
+      - ecobarter-net
+
+  # --------------------------------------------------------------------------
+  # Infrastructure (Messaging & Cache)
+  # --------------------------------------------------------------------------
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js"] # Enable JetStream
+    ports:
+      - "4222:4222"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "4222"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecobarter-net
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecobarter-net
+
+  # --------------------------------------------------------------------------
+  # Databases
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecobarter-net
+
+  mongodb:
+    image: mongo:6
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+    volumes:
+      - mongodata:/data/db
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ecobarter-net
+
+  # --------------------------------------------------------------------------
+  # Core Services
+  # --------------------------------------------------------------------------
+  identity-service:
+    build: ./services/identity
+    environment:
+      - DB_URL=${POSTGRES_URL}
+      - NATS_URL=${NATS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.identity.rule=PathPrefix(`/api/v1/auth`)"
+      - "traefik.http.services.identity.loadbalancer.server.port=8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - ecobarter-net
+
+  catalog-service:
+    build: ./services/catalog
+    environment:
+      - MONGO_URL=${CATALOG_MONGO_URL}
+      - NATS_URL=${NATS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.catalog.rule=PathPrefix(`/api/v1/catalog`)"
+      - "traefik.http.services.catalog.loadbalancer.server.port=8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - ecobarter-net
+
+  trade-engine:
+    build: ./services/trade
+    command: sh -c "sleep 5 && ./trade-engine"
+    environment:
+      - DB_URL=${POSTGRES_DSN}
+      - NATS_URL=${NATS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.trade.rule=PathPrefix(`/api/v1/trade`)"
+      - "traefik.http.services.trade.loadbalancer.server.port=8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - ecobarter-net
+
+  reputation-service:
+    build: ./services/reputation
+    environment:
+      - DB_URL=${POSTGRES_URL}
+      - NATS_URL=${NATS_URL}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.reputation.rule=PathPrefix(`/api/v1/reputation`)"
+      - "traefik.http.services.reputation.loadbalancer.server.port=8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - ecobarter-net
+
+  # --------------------------------------------------------------------------
+  # Real-Time Gateway (Centrifugo)
+  # --------------------------------------------------------------------------
+  centrifugo:
+    image: centrifugo/centrifugo:v5
+    volumes:
+      - "./centrifugo_config.json:/centrifugo/config.json:ro"
+    command: centrifugo --config /centrifugo/config.json
+    environment:
+      - CENTRIFUGO_REDIS_ADDRESS=redis://redis:6379
+      - CENTRIFUGO_ADMIN_PASSWORD=${CENTRIFUGO_ADMIN_PASSWORD}
+      - CENTRIFUGO_SECRET=${CENTRIFUGO_SECRET}
+      - CENTRIFUGO_API_KEY=${CENTRIFUGO_API_KEY}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.centrifugo.rule=PathPrefix(`/connection`)"
+      - "traefik.http.services.centrifugo.loadbalancer.server.port=8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - ecobarter-net
+
+  # --------------------------------------------------------------------------
+  # Frontend
+  # --------------------------------------------------------------------------
+  web-frontend:
+    build:
+      context: .
+      dockerfile: ./apps/web/Dockerfile
+    ports:
+      - "80:3000"
+    environment:
+      - VITE_API_BASE_URL=${VITE_API_BASE_URL}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+    depends_on:
+      - identity-service
+      - catalog-service
+      - trade-engine
+      - reputation-service
+    networks:
+      - ecobarter-net
+
+networks:
+  ecobarter-net:
+    driver: bridge
+
+volumes:
+  pgdata:
+  mongodata:

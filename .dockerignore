@@ -1,0 +1,11 @@
+node_modules
+.svelte-kit
+build
+.env
+.git
+.nx
+dist
+**/node_modules
+**/build
+**/dist
+**/.svelte-kit

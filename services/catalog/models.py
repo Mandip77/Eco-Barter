@@ -1,0 +1,33 @@
+from pydantic import BaseModel, Field
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+
+class GeoLocation(BaseModel):
+    type: str = "Point"
+    coordinates: List[float] = Field(..., example=[-71.0589, 42.3601], description="[longitude, latitude]")
+
+class WantList(BaseModel):
+    # This acts as our schema-less JSONB-like field to store anything
+    # e.g., {"categories": ["electronics"], "keywords": ["camera", "dslr"], "condition": "good"}
+    preferences: Dict[str, Any] = Field(default_factory=dict)
+
+class ProductBase(BaseModel):
+    title: str = Field(..., max_length=150)
+    description: Optional[str] = None
+    category: str
+    emoji: str = Field(default="📦", max_length=10)
+    wants: WantList = Field(default_factory=WantList)
+    tags: List[str] = Field(default_factory=list)
+    location: GeoLocation
+
+class ProductCreate(ProductBase):
+    pass
+
+class Product(ProductBase):
+    id: str = Field(alias="_id")
+    owner_id: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        populate_by_name = True
