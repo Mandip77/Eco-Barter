@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /c/Users/mandi/Desktop/Develop/AI/EcoBarter ls-files --error-unmatch .env)",
+      "Bash(git -C /c/Users/mandi/Desktop/Develop/AI/EcoBarter ls-files)"
+    ]
+  }
+}

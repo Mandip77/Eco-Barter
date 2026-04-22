@@ -1,19 +1,20 @@
-# Build Stage
-FROM golang:alpine AS builder
+# Build stage
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
-COPY go.mod ./
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Temporarily copy go.sum if it exists, or just download without it initially if we mount properly
-# To ensure go.sum runs locally, we can just run go mod tidy during build
 COPY . .
-RUN go mod tidy
-RUN go build -o trade-engine .
+# Disable CGO, strip debug info, build a fully static binary
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o trade-engine .
 
-# Run Stage
-FROM alpine:latest
+# Runtime stage — minimal scratch-like image
+FROM gcr.io/distroless/static-debian12:nonroot
 
 WORKDIR /app
 COPY --from=builder /app/trade-engine .
 
-CMD ["./trade-engine"]
+USER nonroot:nonroot
+
+CMD ["/app/trade-engine"]

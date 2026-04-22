@@ -23,21 +23,19 @@ func PublishToCentrifugo(channel string, data interface{}) {
 	if centrifugoAPI == "" {
 		centrifugoAPI = "http://centrifugo:8000/api"
 	}
+
 	apiKey := os.Getenv("CENTRIFUGO_API_KEY")
 	if apiKey == "" {
-		apiKey = "my_api_key"
+		log.Printf("[Centrifugo] WARNING: CENTRIFUGO_API_KEY is not set — skipping publish to %s", channel)
+		return
 	}
 
 	reqBody := CentrifugoPublishRequest{
 		Method: "publish",
-		Params: PublishParams{
-			Channel: channel,
-			Data:    data,
-		},
+		Params: PublishParams{Channel: channel, Data: data},
 	}
 
 	jsonValue, _ := json.Marshal(reqBody)
-
 	req, err := http.NewRequest("POST", centrifugoAPI, bytes.NewBuffer(jsonValue))
 	if err != nil {
 		log.Printf("[Centrifugo] Failed to build request: %v", err)
@@ -56,8 +54,8 @@ func PublishToCentrifugo(channel string, data interface{}) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Centrifugo] Publish rejected with status %v", resp.StatusCode)
+		log.Printf("[Centrifugo] Publish rejected: status %v on channel %s", resp.StatusCode, channel)
 	} else {
-		log.Printf("[Centrifugo] Published successfully to %s", channel)
+		log.Printf("[Centrifugo] Published to %s", channel)
 	}
 }

@@ -30,25 +30,32 @@ type Item struct {
 	CreatedAt time.Time      `json:"created_at"`
 }
 
-// TradeProposal represents an identified match recorded in PostgreSQL
+// TradeProposal represents an identified match recorded in PostgreSQL.
+// K indicates the loop size (2, 3, or 4). UserC/UserD are empty for smaller loops.
 type TradeProposal struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
-	Status string `gorm:"default:'pending'" json:"status"` // pending, accepted, rejected, completed
-	
-	// K=3 Chain representation: Node A -> Node B -> Node C -> Node A
-	UserA      string `json:"user_a"`
-	ItemA      string `json:"item_a"`
-	VerifiedA  bool   `gorm:"default:false" json:"verified_a"`
-	
-	UserB      string `json:"user_b"`
-	ItemB      string `json:"item_b"`
-	VerifiedB  bool   `gorm:"default:false" json:"verified_b"`
-	
-	UserC      string `json:"user_c"`
-	ItemC      string `json:"item_c"`
-	VerifiedC  bool   `gorm:"default:false" json:"verified_c"`
+	K      int    `gorm:"default:3" json:"k"` // loop size: 2, 3, or 4
+	Status string `gorm:"default:'pending'" json:"status"` // pending, in_progress, completed, cancelled
+
+	UserA     string `json:"user_a"`
+	ItemA     string `json:"item_a"`
+	VerifiedA bool   `gorm:"default:false" json:"verified_a"`
+
+	UserB     string `json:"user_b"`
+	ItemB     string `json:"item_b"`
+	VerifiedB bool   `gorm:"default:false" json:"verified_b"`
+
+	// Optional: populated for K=3 and K=4
+	UserC     string `json:"user_c,omitempty"`
+	ItemC     string `json:"item_c,omitempty"`
+	VerifiedC bool   `gorm:"default:false" json:"verified_c"`
+
+	// Optional: populated for K=4 only
+	UserD     string `json:"user_d,omitempty"`
+	ItemD     string `json:"item_d,omitempty"`
+	VerifiedD bool   `gorm:"default:false" json:"verified_d"`
 }

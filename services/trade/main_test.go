@@ -70,8 +70,10 @@ func setupRouter() *gin.Engine {
 	r.GET("/api/v1/trade/proposals", AuthRequired(), func(c *gin.Context) {
 		currentUser := c.GetString("username")
 		var proposals []TradeProposal
-		result := DB.Where("user_a = ? OR user_b = ? OR user_c = ?",
-			currentUser, currentUser, currentUser).Find(&proposals)
+		result := DB.Where(
+			"user_a = ? OR user_b = ? OR user_c = ? OR user_d = ?",
+			currentUser, currentUser, currentUser, currentUser,
+		).Find(&proposals)
 		if result.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 			return
@@ -99,20 +101,43 @@ func setupRouter() *gin.Engine {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Trade proposal is already completed or cancelled"})
 			return
 		}
+		matched := false
 		if proposal.UserA == currentUser {
 			proposal.VerifiedA = true
+			matched = true
 		} else if proposal.UserB == currentUser {
 			proposal.VerifiedB = true
-		} else if proposal.UserC == currentUser {
+			matched = true
+		} else if proposal.K >= 3 && proposal.UserC == currentUser {
 			proposal.VerifiedC = true
-		} else {
+			matched = true
+		} else if proposal.K >= 4 && proposal.UserD == currentUser {
+			proposal.VerifiedD = true
+			matched = true
+		}
+		if !matched {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Target user not part of this trade"})
 			return
 		}
-		if proposal.VerifiedA && proposal.VerifiedB && proposal.VerifiedC {
-			proposal.Status = "completed"
-		} else {
-			proposal.Status = "in_progress"
+		switch proposal.K {
+		case 2:
+			if proposal.VerifiedA && proposal.VerifiedB {
+				proposal.Status = "completed"
+			} else {
+				proposal.Status = "in_progress"
+			}
+		case 4:
+			if proposal.VerifiedA && proposal.VerifiedB && proposal.VerifiedC && proposal.VerifiedD {
+				proposal.Status = "completed"
+			} else {
+				proposal.Status = "in_progress"
+			}
+		default:
+			if proposal.VerifiedA && proposal.VerifiedB && proposal.VerifiedC {
+				proposal.Status = "completed"
+			} else {
+				proposal.Status = "in_progress"
+			}
 		}
 		DB.Save(&proposal)
 		c.JSON(http.StatusOK, gin.H{"message": "Verification recorded", "proposal": proposal})
@@ -135,7 +160,10 @@ func setupRouter() *gin.Engine {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Trade proposal not found"})
 			return
 		}
-		if proposal.UserA != currentUser && proposal.UserB != currentUser && proposal.UserC != currentUser {
+		isParticipant := proposal.UserA == currentUser || proposal.UserB == currentUser ||
+			(proposal.K >= 3 && proposal.UserC == currentUser) ||
+			(proposal.K >= 4 && proposal.UserD == currentUser)
+		if !isParticipant {
 			c.JSON(http.StatusForbidden, gin.H{"error": "You are not part of this trade"})
 			return
 		}
@@ -577,6 +605,229 @@ func TestEvaluateMatch_SameOwnerNotMatched(t *testing.T) {
 	DB.Model(&TradeProposal{}).Count(&count)
 	if count != 0 {
 		t.Errorf("same-owner loop should be rejected, got %d proposals", count)
+	}
+}
+
+// ─────────────────────────────────────────────────────────────
+// EvaluateMatch — K=2 and K=4 matching
+// ─────────────────────────────────────────────────────────────
+
+func TestEvaluateMatch_K2DirectSwap(t *testing.T) {
+	setupTestDB(t)
+
+	// B has Electronics (what A wants) and wants Books (what A has)
+	DB.Create(&Item{
+		ID: "item-b", OwnerID: "bob",
+		Category: "Electronics", Title: "💻 Laptop",
+		Wants: wantsJSON("Books"), Status: "available",
+	})
+
+	// A has Books and wants Electronics → direct K=2 swap with B
+	event, _ := json.Marshal(map[string]interface{}{
+		"_id":      "item-a",
+		"owner_id": "alice",
+		"title":    "Textbook",
+		"emoji":    "📚",
+		"category": "Books",
+		"wants":    map[string]interface{}{"category": "Electronics"},
+		"tags":     []string{},
+	})
+
+	EvaluateMatch(event)
+
+	var proposal TradeProposal
+	DB.First(&proposal)
+	if proposal.ID == 0 {
+		t.Fatal("expected a K=2 TradeProposal to be created")
+	}
+	if proposal.K != 2 {
+		t.Errorf("expected K=2, got K=%d", proposal.K)
+	}
+	if proposal.UserC != "" {
+		t.Errorf("K=2 proposal should have empty UserC, got %q", proposal.UserC)
+	}
+	// Both items should be marked matched
+	var matched []Item
+	DB.Where("status = ?", "matched").Find(&matched)
+	if len(matched) != 2 {
+		t.Errorf("expected 2 matched items for K=2, got %d", len(matched))
+	}
+}
+
+func TestEvaluateMatch_K4LoopCreatesProposal(t *testing.T) {
+	setupTestDB(t)
+
+	// Build A→B→C→D→A:
+	//  A: Books,       wants Electronics
+	//  B: Electronics, wants Furniture
+	//  C: Furniture,   wants Clothing
+	//  D: Clothing,    wants Books
+	DB.Create(&Item{
+		ID: "item-b", OwnerID: "bob",
+		Category: "Electronics", Title: "💻 Laptop",
+		Wants: wantsJSON("Furniture"), Status: "available",
+	})
+	DB.Create(&Item{
+		ID: "item-c", OwnerID: "carol",
+		Category: "Furniture", Title: "🪑 Chair",
+		Wants: wantsJSON("Clothing"), Status: "available",
+	})
+	DB.Create(&Item{
+		ID: "item-d", OwnerID: "dave",
+		Category: "Clothing", Title: "👗 Dress",
+		Wants: wantsJSON("Books"), Status: "available",
+	})
+
+	event, _ := json.Marshal(map[string]interface{}{
+		"_id":      "item-a",
+		"owner_id": "alice",
+		"title":    "Textbook",
+		"emoji":    "📚",
+		"category": "Books",
+		"wants":    map[string]interface{}{"category": "Electronics"},
+		"tags":     []string{},
+	})
+
+	EvaluateMatch(event)
+
+	var proposal TradeProposal
+	DB.First(&proposal)
+	if proposal.ID == 0 {
+		t.Fatal("expected a K=4 TradeProposal to be created")
+	}
+	if proposal.K != 4 {
+		t.Errorf("expected K=4, got K=%d", proposal.K)
+	}
+	if proposal.UserD == "" {
+		t.Error("K=4 proposal should have UserD populated")
+	}
+	// All four items should be matched
+	var matched []Item
+	DB.Where("status = ?", "matched").Find(&matched)
+	if len(matched) != 4 {
+		t.Errorf("expected 4 matched items for K=4, got %d", len(matched))
+	}
+}
+
+// ─────────────────────────────────────────────────────────────
+// Verify — K=2 and K=4 proposals
+// ─────────────────────────────────────────────────────────────
+
+func seedK2Proposal(t *testing.T) uint {
+	t.Helper()
+	p := TradeProposal{
+		K: 2, Status: "pending",
+		UserA: "alice", ItemA: "📚 Textbook",
+		UserB: "bob", ItemB: "💻 Laptop",
+	}
+	DB.Create(&p)
+	return p.ID
+}
+
+func seedK4Proposal(t *testing.T) uint {
+	t.Helper()
+	p := TradeProposal{
+		K: 4, Status: "pending",
+		UserA: "alice", ItemA: "📚 Textbook",
+		UserB: "bob", ItemB: "💻 Laptop",
+		UserC: "carol", ItemC: "🪑 Chair",
+		UserD: "dave", ItemD: "👗 Dress",
+	}
+	DB.Create(&p)
+	return p.ID
+}
+
+func TestVerify_K2_BothVerify_Completes(t *testing.T) {
+	setupTestDB(t)
+	r := setupRouter()
+	id := seedK2Proposal(t)
+
+	for _, user := range []string{"alice", "bob"} {
+		body, _ := json.Marshal(map[string]interface{}{"trade_id": id})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/trade/verify", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+makeToken(t, user))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s K=2 verify failed: %d — %s", user, w.Code, w.Body.String())
+		}
+	}
+
+	var p TradeProposal
+	DB.First(&p, id)
+	if p.Status != "completed" {
+		t.Errorf("K=2 proposal should be completed after both verify, got %s", p.Status)
+	}
+}
+
+func TestVerify_K2_OneVerify_InProgress(t *testing.T) {
+	setupTestDB(t)
+	r := setupRouter()
+	id := seedK2Proposal(t)
+
+	body, _ := json.Marshal(map[string]interface{}{"trade_id": id})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/trade/verify", bytes.NewBuffer(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+makeToken(t, "alice"))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d", w.Code)
+	}
+	var p TradeProposal
+	DB.First(&p, id)
+	if p.Status != "in_progress" {
+		t.Errorf("expected in_progress after one K=2 verify, got %s", p.Status)
+	}
+}
+
+func TestVerify_K4_AllFourVerify_Completes(t *testing.T) {
+	setupTestDB(t)
+	r := setupRouter()
+	id := seedK4Proposal(t)
+
+	for _, user := range []string{"alice", "bob", "carol", "dave"} {
+		body, _ := json.Marshal(map[string]interface{}{"trade_id": id})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/trade/verify", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+makeToken(t, user))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s K=4 verify failed: %d — %s", user, w.Code, w.Body.String())
+		}
+	}
+
+	var p TradeProposal
+	DB.First(&p, id)
+	if p.Status != "completed" {
+		t.Errorf("K=4 proposal should be completed after all four verify, got %s", p.Status)
+	}
+}
+
+func TestVerify_K4_ThreeVerify_StillInProgress(t *testing.T) {
+	setupTestDB(t)
+	r := setupRouter()
+	id := seedK4Proposal(t)
+
+	for _, user := range []string{"alice", "bob", "carol"} {
+		body, _ := json.Marshal(map[string]interface{}{"trade_id": id})
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/trade/verify", bytes.NewBuffer(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+makeToken(t, user))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s K=4 verify failed: %d", user, w.Code)
+		}
+	}
+
+	var p TradeProposal
+	DB.First(&p, id)
+	if p.Status == "completed" {
+		t.Error("K=4 proposal should NOT be completed with only 3 verifications")
 	}
 }
 

@@ -39,3 +39,7 @@ data/
 pgdata/
 mongodb_data/
 nats_data/
+
+# TLS certificates (created at runtime by Traefik/Let's Encrypt)
+letsencrypt/
+acme.json

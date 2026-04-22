@@ -1,0 +1,165 @@
+# EcoBarter — Production overlay
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# Requires: DOMAIN, ACME_EMAIL, ALLOWED_ORIGINS set in .env
+
+services:
+
+  # ── Traefik ─────────────────────────────────────────────────────────────────
+  traefik:
+    image: traefik:v2.10
+    user: root          # required for /var/run/docker.sock
+    restart: unless-stopped
+    command:
+      # Core
+      - "--api.insecure=false"
+      - "--api.dashboard=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      # Entry points
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Redirect HTTP → HTTPS
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+      # Let's Encrypt (TLS challenge)
+      - "--certificatesresolvers.le.acme.tlschallenge=true"
+      - "--certificatesresolvers.le.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.le.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - "./letsencrypt:/letsencrypt"
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+    deploy:
+      resources:
+        limits: { memory: 128m, cpus: "0.15" }
+    # Define the shared security-headers middleware here on the Traefik container
+    labels:
+      - "traefik.enable=true"
+      # Security headers middleware (applied to every router below)
+      - "traefik.http.middlewares.secure-headers.headers.frameDeny=true"
+      - "traefik.http.middlewares.secure-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.secure-headers.headers.browserXssFilter=true"
+      - "traefik.http.middlewares.secure-headers.headers.stsSeconds=31536000"
+      - "traefik.http.middlewares.secure-headers.headers.stsIncludeSubdomains=true"
+      - "traefik.http.middlewares.secure-headers.headers.stsPreload=true"
+      - "traefik.http.middlewares.secure-headers.headers.referrerPolicy=strict-origin-when-cross-origin"
+      - "traefik.http.middlewares.secure-headers.headers.customResponseHeaders.Server="
+      - "traefik.http.middlewares.secure-headers.headers.customResponseHeaders.X-Powered-By="
+      - "traefik.http.middlewares.secure-headers.headers.permissionsPolicy=camera=(), microphone=(), geolocation=(self)"
+
+  # ── Databases ───────────────────────────────────────────────────────────────
+  postgres:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 2g, cpus: "0.80" }
+
+  mongodb:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 2g, cpus: "0.60" }
+
+  redis:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 256m, cpus: "0.10" }
+
+  nats:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 256m, cpus: "0.10" }
+
+  # ── Identity ─────────────────────────────────────────────────────────────────
+  identity-service:
+    restart: unless-stopped
+    environment:
+      - ALLOWED_ORIGINS=https://${DOMAIN}
+    deploy:
+      resources:
+        limits: { memory: 512m, cpus: "0.20" }
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.identity.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/v1/auth`)"
+      - "traefik.http.routers.identity.entrypoints=websecure"
+      - "traefik.http.routers.identity.tls.certresolver=le"
+      - "traefik.http.routers.identity.middlewares=secure-headers@docker"
+      - "traefik.http.services.identity.loadbalancer.server.port=80"
+
+  # ── Catalog ──────────────────────────────────────────────────────────────────
+  catalog-service:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 512m, cpus: "0.20" }
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.catalog.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/v1/catalog`)"
+      - "traefik.http.routers.catalog.entrypoints=websecure"
+      - "traefik.http.routers.catalog.tls.certresolver=le"
+      - "traefik.http.routers.catalog.middlewares=secure-headers@docker"
+      - "traefik.http.services.catalog.loadbalancer.server.port=80"
+
+  # ── Trade Engine ─────────────────────────────────────────────────────────────
+  trade-engine:
+    restart: on-failure   # restart if startup fails (e.g. DB not yet ready)
+    command: ["./trade-engine"]  # remove the brittle sleep 5
+    deploy:
+      resources:
+        limits: { memory: 512m, cpus: "0.30" }
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.trade.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/v1/trade`)"
+      - "traefik.http.routers.trade.entrypoints=websecure"
+      - "traefik.http.routers.trade.tls.certresolver=le"
+      - "traefik.http.routers.trade.middlewares=secure-headers@docker"
+      - "traefik.http.services.trade.loadbalancer.server.port=80"
+
+  # ── Reputation ───────────────────────────────────────────────────────────────
+  reputation-service:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 256m, cpus: "0.10" }
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.reputation.rule=Host(`${DOMAIN}`) && PathPrefix(`/api/v1/reputation`)"
+      - "traefik.http.routers.reputation.entrypoints=websecure"
+      - "traefik.http.routers.reputation.tls.certresolver=le"
+      - "traefik.http.routers.reputation.middlewares=secure-headers@docker"
+      - "traefik.http.services.reputation.loadbalancer.server.port=80"
+
+  # ── Centrifugo ───────────────────────────────────────────────────────────────
+  centrifugo:
+    restart: unless-stopped
+    environment:
+      - CENTRIFUGO_ALLOWED_ORIGINS=https://${DOMAIN}
+    deploy:
+      resources:
+        limits: { memory: 512m, cpus: "0.20" }
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.centrifugo.rule=Host(`${DOMAIN}`) && PathPrefix(`/connection`)"
+      - "traefik.http.routers.centrifugo.entrypoints=websecure"
+      - "traefik.http.routers.centrifugo.tls.certresolver=le"
+      - "traefik.http.routers.centrifugo.middlewares=secure-headers@docker"
+      - "traefik.http.services.centrifugo.loadbalancer.server.port=8000"
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+  web-frontend:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits: { memory: 512m, cpus: "0.20" }
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=le"
+      - "traefik.http.routers.frontend.middlewares=secure-headers@docker"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"

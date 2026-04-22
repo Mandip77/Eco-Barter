@@ -12,9 +12,7 @@ services:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--entrypoints.web.address=:80"
-    ports:
-      - "8081:80"
-      - "8080:8080" # Dashboard
+    # Ports are managed via override files (e.g., docker-compose.prod.yml)
     volumes:
       - "/var/run/docker.sock:/var/run/docker.sock:ro"
     networks:
@@ -26,8 +24,7 @@ services:
   nats:
     image: nats:2.10-alpine
     command: ["-js"] # Enable JetStream
-    ports:
-      - "4222:4222"
+    # NATS is internal only. Use port forwarding or an override for external access.
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "4222"]
       interval: 5s
@@ -185,8 +182,8 @@ services:
     build:
       context: .
       dockerfile: ./apps/web/Dockerfile
-    ports:
-      - "80:3000"
+    # Ports removed to avoid conflict with Traefik in production.
+    # Use an override file for local development if host access is needed.
     environment:
       - VITE_API_BASE_URL=${VITE_API_BASE_URL}
     labels:

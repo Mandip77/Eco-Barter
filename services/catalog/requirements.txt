@@ -4,3 +4,6 @@ motor>=3.3.1
 nats-py>=2.3.1
 pydantic>=2.0.0
 PyJWT
+slowapi
+python-multipart
+aiofiles

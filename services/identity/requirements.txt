@@ -5,3 +5,5 @@ psycopg2-binary
 passlib[bcrypt]
 pyjwt
 pydantic[email]
+slowapi
+alembic

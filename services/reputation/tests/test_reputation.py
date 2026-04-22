@@ -36,9 +36,13 @@ class TradeProposalTest(TestBase):
     user_a = Column(String)
     user_b = Column(String)
     user_c = Column(String)
+    user_d = Column(String)
     verified_a = Column(Boolean, default=False)
     verified_b = Column(Boolean, default=False)
     verified_c = Column(Boolean, default=False)
+    verified_d = Column(Boolean, default=False)
+    created_at = Column(String)
+    updated_at = Column(String)
 
 test_engine = create_engine(
     SQLALCHEMY_TEST_URL, connect_args={"check_same_thread": False}
@@ -191,3 +195,76 @@ class TestGetGlobalReputation:
         assert "alice" in data
         assert "bob" in data
         assert "carol" in data
+
+
+# ─────────────────────────────────────────────────────────────
+# GET /api/v1/reputation/leaderboard
+# ─────────────────────────────────────────────────────────────
+
+class TestLeaderboard:
+    def test_empty_leaderboard(self):
+        resp = client.get("/api/v1/reputation/leaderboard")
+        assert resp.status_code == 200
+        assert resp.json() == {"leaderboard": []}
+
+    def test_leaderboard_has_rank_field(self):
+        seed_completed_trade("alice", "bob", "carol")
+        resp = client.get("/api/v1/reputation/leaderboard")
+        entry = resp.json()["leaderboard"][0]
+        assert "rank" in entry
+        assert "user_id" in entry
+        assert "eigentrust_score" in entry
+        assert "tier" in entry
+        assert "eco_impact_kg" in entry
+
+    def test_leaderboard_limit(self):
+        for i in range(5):
+            seed_completed_trade(f"user{i}", f"peer{i}a", f"peer{i}b")
+        resp = client.get("/api/v1/reputation/leaderboard?limit=3")
+        assert resp.status_code == 200
+        assert len(resp.json()["leaderboard"]) <= 3
+
+    def test_leaderboard_invalid_limit_returns_400(self):
+        resp = client.get("/api/v1/reputation/leaderboard?limit=0")
+        assert resp.status_code == 400
+
+    def test_leaderboard_sorted_descending(self):
+        # alice in 3 trades, bob in 1 — alice should rank higher
+        seed_completed_trade("alice", "bob", "carol")
+        seed_completed_trade("alice", "dave", "eve")
+        seed_completed_trade("alice", "frank", "grace")
+        resp = client.get("/api/v1/reputation/leaderboard")
+        entries = resp.json()["leaderboard"]
+        scores = [e["eigentrust_score"] for e in entries]
+        assert scores == sorted(scores, reverse=True)
+
+
+# ─────────────────────────────────────────────────────────────
+# eco_impact_kg field
+# ─────────────────────────────────────────────────────────────
+
+class TestEcoImpact:
+    def test_no_trades_eco_impact_is_zero(self):
+        resp = client.get("/api/v1/reputation/ghost_eco")
+        assert resp.json()["eco_impact_kg"] == 0.0
+
+    def test_one_trade_eco_impact_is_five(self):
+        seed_completed_trade("alice", "bob", "carol")
+        resp = client.get("/api/v1/reputation/alice")
+        assert resp.json()["eco_impact_kg"] == 5.0
+
+    def test_three_trades_eco_impact_is_fifteen(self):
+        for i in range(3):
+            seed_completed_trade("alice", f"b{i}", f"c{i}")
+        resp = client.get("/api/v1/reputation/alice")
+        assert resp.json()["eco_impact_kg"] == 15.0
+
+
+# ─────────────────────────────────────────────────────────────
+# Rank tiers
+# ─────────────────────────────────────────────────────────────
+
+class TestRankTiers:
+    def test_default_rank_is_novice(self):
+        resp = client.get("/api/v1/reputation/brand_new_user")
+        assert resp.json()["rank"] == "Novice"

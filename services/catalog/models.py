@@ -7,8 +7,6 @@ class GeoLocation(BaseModel):
     coordinates: List[float] = Field(..., example=[-71.0589, 42.3601], description="[longitude, latitude]")
 
 class WantList(BaseModel):
-    # This acts as our schema-less JSONB-like field to store anything
-    # e.g., {"categories": ["electronics"], "keywords": ["camera", "dslr"], "condition": "good"}
     preferences: Dict[str, Any] = Field(default_factory=dict)
 
 class ProductBase(BaseModel):
@@ -28,6 +26,7 @@ class Product(ProductBase):
     owner_id: str
     created_at: datetime
     updated_at: datetime
+    image_data: Optional[str] = None  # base64-encoded image, populated by image upload endpoint
 
     class Config:
         populate_by_name = True

@@ -1,13 +1,15 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
-	"syscall"
 	"strings"
-	"fmt"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
@@ -29,7 +31,7 @@ func AuthRequired() gin.HandlerFunc {
 		tokenString := parts[1]
 		secret := os.Getenv("JWT_SECRET")
 		if secret == "" {
-			secret = "super_secret_dev_key_do_not_use_in_prod"
+			log.Fatal("JWT_SECRET environment variable must be set")
 		}
 
 		token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
@@ -61,23 +63,62 @@ func AuthRequired() gin.HandlerFunc {
 	}
 }
 
+// RateLimiter implements a fixed 1-minute window per-IP limiter using only stdlib.
+// Allows up to 60 requests per minute per IP; stale windows are cleaned every 5 minutes.
+func RateLimiter() gin.HandlerFunc {
+	type window struct {
+		count int
+		start time.Time
+	}
+	var mu sync.Mutex
+	windows := make(map[string]*window)
+	const maxPerMinute = 60
+
+	go func() {
+		for range time.Tick(5 * time.Minute) {
+			mu.Lock()
+			for ip, w := range windows {
+				if time.Since(w.start) > 2*time.Minute {
+					delete(windows, ip)
+				}
+			}
+			mu.Unlock()
+		}
+	}()
+
+	return func(c *gin.Context) {
+		ip := c.ClientIP()
+		mu.Lock()
+		w, ok := windows[ip]
+		if !ok || time.Since(w.start) > time.Minute {
+			windows[ip] = &window{count: 1, start: time.Now()}
+			mu.Unlock()
+			c.Next()
+			return
+		}
+		w.count++
+		count := w.count
+		mu.Unlock()
+
+		if count > maxPerMinute {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded"})
+			return
+		}
+		c.Next()
+	}
+}
+
 func main() {
 	log.Println("Booting EcoBarter Trade Engine...")
 
-	// 1. Initialize Postgres
 	initDB()
-
-	// 2. Initialize NATS JetStream Consumer (async loop starts inside)
 	initMessaging()
 	defer closeMessaging()
-
-	// 3. Initialize Worker Pool
 	StartWorkerPool(5)
 
-	// 4. Initialize HTTP Server via Gin
 	r := gin.Default()
+	r.Use(RateLimiter())
 
-	// Endpoints (For Traefik probing and manual debug check)
 	r.GET("/api/v1/trade", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":  "ok",
@@ -85,12 +126,14 @@ func main() {
 			"message": "Consuming events and tracking K-Way Trade matches via PostgreSQL.",
 		})
 	})
-	
-	// Expose our recent matches for authorized participants
+
 	r.GET("/api/v1/trade/proposals", AuthRequired(), func(c *gin.Context) {
 		currentUser := c.GetString("username")
 		var proposals []TradeProposal
-		result := DB.Where("user_a = ? OR user_b = ? OR user_c = ?", currentUser, currentUser, currentUser).Find(&proposals)
+		result := DB.Where(
+			"user_a = ? OR user_b = ? OR user_c = ? OR user_d = ?",
+			currentUser, currentUser, currentUser, currentUser,
+		).Find(&proposals)
 		if result.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
 			return
@@ -99,7 +142,7 @@ func main() {
 	})
 
 	type VerifyRequest struct {
-		TradeID      uint   `json:"trade_id" binding:"required"`
+		TradeID uint `json:"trade_id" binding:"required"`
 	}
 
 	r.POST("/api/v1/trade/verify", AuthRequired(), func(c *gin.Context) {
@@ -121,31 +164,52 @@ func main() {
 			return
 		}
 
+		matched := false
 		if proposal.UserA == currentUser {
 			proposal.VerifiedA = true
+			matched = true
 		} else if proposal.UserB == currentUser {
 			proposal.VerifiedB = true
-		} else if proposal.UserC == currentUser {
+			matched = true
+		} else if proposal.K >= 3 && proposal.UserC == currentUser {
 			proposal.VerifiedC = true
-		} else {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Target user not part of this trade"})
+			matched = true
+		} else if proposal.K >= 4 && proposal.UserD == currentUser {
+			proposal.VerifiedD = true
+			matched = true
+		}
+
+		if !matched {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "User is not part of this trade"})
 			return
 		}
 
-		// Check if fully complete
-		if proposal.VerifiedA && proposal.VerifiedB && proposal.VerifiedC {
-			proposal.Status = "completed"
-		} else {
-			proposal.Status = "in_progress"
+		switch proposal.K {
+		case 2:
+			if proposal.VerifiedA && proposal.VerifiedB {
+				proposal.Status = "completed"
+			} else {
+				proposal.Status = "in_progress"
+			}
+		case 4:
+			if proposal.VerifiedA && proposal.VerifiedB && proposal.VerifiedC && proposal.VerifiedD {
+				proposal.Status = "completed"
+			} else {
+				proposal.Status = "in_progress"
+			}
+		default: // K=3
+			if proposal.VerifiedA && proposal.VerifiedB && proposal.VerifiedC {
+				proposal.Status = "completed"
+			} else {
+				proposal.Status = "in_progress"
+			}
 		}
 
 		DB.Save(&proposal)
-		
 		PublishToCentrifugo("trade_hub:proposals", map[string]interface{}{
-			"event": "proposal_updated",
+			"event":    "proposal_updated",
 			"proposal": proposal,
 		})
-		
 		c.JSON(http.StatusOK, gin.H{"message": "Verification recorded", "proposal": proposal})
 	})
 
@@ -168,29 +232,28 @@ func main() {
 			return
 		}
 
-		if proposal.UserA != currentUser && proposal.UserB != currentUser && proposal.UserC != currentUser {
+		isParticipant := proposal.UserA == currentUser || proposal.UserB == currentUser ||
+			(proposal.K >= 3 && proposal.UserC == currentUser) ||
+			(proposal.K >= 4 && proposal.UserD == currentUser)
+		if !isParticipant {
 			c.JSON(http.StatusForbidden, gin.H{"error": "You are not part of this trade"})
 			return
 		}
 
 		channel := fmt.Sprintf("chat_%d", proposal.ID)
-		msgData := map[string]interface{}{
+		PublishToCentrifugo(channel, map[string]interface{}{
 			"from": currentUser,
 			"text": req.Text,
-		}
-
-		PublishToCentrifugo(channel, msgData)
+		})
 		c.JSON(http.StatusOK, gin.H{"status": "published"})
 	})
 
-	// Run Server
 	go func() {
 		if err := r.Run(":80"); err != nil {
 			log.Fatalf("Gin server failed: %v", err)
 		}
 	}()
 
-	// Graceful Shutdown
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
