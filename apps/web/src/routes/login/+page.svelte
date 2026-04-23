@@ -73,6 +73,15 @@
   }
 </script>
 
+<svelte:head>
+  <title>Sign In — EcoBarter</title>
+  <meta name="description" content="Sign in or create your free EcoBarter account to start trading sustainably — no money needed." />
+  <meta property="og:title" content="Sign In — EcoBarter" />
+  <meta property="og:description" content="Join EcoBarter — the sustainable marketplace where you trade what you have for what you need." />
+  <meta name="twitter:title" content="Sign In — EcoBarter" />
+  <meta name="twitter:description" content="Join EcoBarter and start trading sustainably today. Free to join." />
+</svelte:head>
+
 <div class="min-h-screen flex items-center justify-center p-6 relative overflow-hidden">
   <!-- Decorative background elements -->
   <div class="absolute -top-24 -left-24 w-96 h-96 bg-green-500/10 rounded-full blur-3xl"></div>

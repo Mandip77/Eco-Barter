@@ -7,17 +7,25 @@
     let connected = $state(false);
     let tradeProposals = $state<any[]>([]);
     let currentUser = $derived(authState.user?.username || null);
-    
+
     let showScanModal = $state(false);
     let qrDataUrl = $state('');
     let activeTrade = $state<any>(null);
     let verifyNode = $state('');
     let mockScanValue = $state('');
-    
     let isVerifying = $state(false);
+    let toastMsg = $state('');
+    let toastType = $state('');
+
+    function showToast(msg: string, type: string = '') {
+        toastMsg = msg;
+        toastType = type;
+        setTimeout(() => { toastMsg = ''; toastType = ''; }, 4000);
+    }
 
     onMount(async () => {
-        const centrifuge = new Centrifuge('ws://localhost:8000/connection/websocket');
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const centrifuge = new Centrifuge(`${wsProto}//${window.location.host}/connection/websocket`);
 
         centrifuge.on('connected', () => connected = true);
         centrifuge.on('disconnected', () => connected = false);
@@ -80,20 +88,25 @@
                 body: JSON.stringify(parsed)
             });
             if (resp.ok) {
-                // If success, maybe trigger a centrifugal push from backend. For now, we update local visually,
-                // or just wait for Centrifugo push if backend is wired.
-                alert('Physical scan successful! Hand-off verified ✅');
+                showToast('Hand-off verified! Item exchange confirmed.', 'success');
                 showScanModal = false;
                 mockScanValue = '';
             } else {
-                alert('Scan rejected! Invalid trade parameters.');
+                showToast('Scan rejected — invalid trade parameters.', 'error');
             }
         } catch (e) {
-            alert('Invalid QR payload format!');
+            showToast('Invalid QR code format. Please try again.', 'error');
         }
         isVerifying = false;
     };
 </script>
+
+<svelte:head>
+    <title>Trade Loop Coordinator — EcoBarter</title>
+    <meta name="description" content="Coordinate, verify, and lock your EcoBarter circular trade exchanges with QR-based physical handoff confirmation." />
+    <meta property="og:title" content="Trade Loop Coordinator — EcoBarter" />
+    <meta property="og:description" content="Coordinate K-way circular trade loops and verify physical item exchanges on EcoBarter." />
+</svelte:head>
 
 <div class="min-h-screen bg-slate-950 text-slate-200 font-sans p-6 md:p-12">
     <header class="flex justify-between items-center mb-12">
@@ -196,8 +209,8 @@
     <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
     <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
         <div class="w-full max-w-md bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl relative">
-            <button onclick={() => showScanModal = false} class="absolute top-4 right-4 text-slate-400 hover:text-slate-200 transition-colors">
-                <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            <button onclick={() => showScanModal = false} aria-label="Close" class="absolute top-4 right-4 text-slate-400 hover:text-slate-200 transition-colors">
+                <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
             
             <h2 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-teal-300 mb-6 text-center">Scan Validated Exchange</h2>
@@ -225,3 +238,13 @@
         </div>
     </div>
 {/if}
+
+{#if toastMsg}
+    <div style="position:fixed;bottom:24px;right:24px;padding:13px 22px;border-radius:14px;font-size:0.88rem;font-weight:600;z-index:9999;max-width:360px;line-height:1.45;pointer-events:none;animation:toastIn 0.3s cubic-bezier(0.34,1.56,0.64,1);box-shadow:0 8px 28px rgba(0,0,0,0.3);{toastType === 'success' ? 'background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;' : toastType === 'error' ? 'background:linear-gradient(135deg,#e11d48,#be123c);color:#fff;' : 'background:#0f172a;color:#fff;'}">
+        {toastMsg}
+    </div>
+{/if}
+
+<style>
+    @keyframes toastIn { from{transform:translateY(22px) scale(0.94);opacity:0} to{transform:translateY(0) scale(1);opacity:1} }
+</style>

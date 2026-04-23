@@ -8,10 +8,12 @@ export const authState = $state<{
     user: User | null;
     token: string | null;
     isInitialized: boolean;
+    serviceError: boolean;
 }>({
     user: null,
     token: null,
-    isInitialized: false
+    isInitialized: false,
+    serviceError: false,
 });
 
 export function initializeAuth() {
@@ -29,19 +31,21 @@ export function initializeAuth() {
 async function fetchUser(token: string) {
     try {
         const response = await fetch('/api/v1/auth/me', {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
+            headers: { 'Authorization': `Bearer ${token}` }
         });
         if (response.ok) {
             authState.user = await response.json();
-        } else {
-            // Token invalid or expired
+            authState.serviceError = false;
+        } else if (response.status === 401 || response.status === 403) {
+            // Bad or expired token — clear it
             logout();
+        } else {
+            // 5xx or unexpected status: service is starting up, keep the token
+            authState.serviceError = true;
         }
-    } catch (e) {
-        console.error("Failed to fetch user", e);
-        logout();
+    } catch {
+        // Network unreachable — keep the token so the user isn't logged out
+        authState.serviceError = true;
     } finally {
         authState.isInitialized = true;
     }
@@ -52,6 +56,7 @@ export function login(token: string) {
         localStorage.setItem('auth_token', token);
     }
     authState.token = token;
+    authState.serviceError = false;
     fetchUser(token);
 }
 
@@ -61,4 +66,5 @@ export function logout() {
     }
     authState.token = null;
     authState.user = null;
+    authState.serviceError = false;
 }
