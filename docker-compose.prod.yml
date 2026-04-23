@@ -94,6 +94,8 @@ services:
   # ── Frontend ─────────────────────────────────────────────────────────────────
   web-frontend:
     restart: unless-stopped
+    environment:
+      - ORIGIN=https://${DOMAIN}
     deploy:
       resources:
         limits: { memory: 512m, cpus: "0.20" }
