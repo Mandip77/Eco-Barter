@@ -31,6 +31,29 @@
   let newListing = $state({ title: '', cat: 'Electronics', desc: '', wants: '', emoji: '📦' });
   let selectedListing: any = $state(null);
 
+  // ── Profile customization (localStorage) ───────────────────────────
+  let profileEmoji = $state('');
+  let profileBio = $state('');
+  let profileColor = $state('#16a34a');
+  let profileTab = $state<'overview'|'listings'|'edit'|'security'|'settings'>('overview');
+  let showEmojiPicker = $state(false);
+  let editBio = $state('');
+  let showAvatarMenu = $state(false);
+
+  // ── Change password form ────────────────────────────────────────────
+  let pwForm = $state({ current: '', next: '', confirm: '' });
+  let pwError = $state('');
+  let pwSuccess = $state('');
+  let pwLoading = $state(false);
+
+  // ── Settings ────────────────────────────────────────────────────────
+  let settingsNotifs = $state(true);
+  let settingsPublic = $state(true);
+  let settingsEcoAlerts = $state(true);
+
+  const avatarEmojis = ['🌿','🌱','🦋','🌸','🍃','🌍','♻️','🌲','🌻','🐝','💚','🦺','🌊','🔆','✨','🎯','🚀','🦁','🐻','🦊'];
+  const avatarColors = ['#16a34a','#0d9488','#2563eb','#7c3aed','#db2777','#ea580c','#ca8a04','#64748b'];
+
   let filteredListings = $derived(listings.filter(l =>
     (activeFilter === 'All' || l.cat === activeFilter) &&
     (!searchQuery || l.title.toLowerCase().includes(searchQuery.toLowerCase()) || l.desc.toLowerCase().includes(searchQuery.toLowerCase()) || l.wants.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -69,9 +92,18 @@
   }
 
   onMount(async () => {
+    // Load profile customization
+    profileEmoji = localStorage.getItem('profile_emoji') || '';
+    profileBio = localStorage.getItem('profile_bio') || '';
+    profileColor = localStorage.getItem('profile_color') || '#16a34a';
+    editBio = profileBio;
+    settingsNotifs = localStorage.getItem('settings_notifs') !== 'false';
+    settingsPublic = localStorage.getItem('settings_public') !== 'false';
+    settingsEcoAlerts = localStorage.getItem('settings_eco_alerts') !== 'false';
+
     await loadListings();
 
-    // Fetch Reputation
+    // Fetch reputation
     if (authState.user) {
       try {
         const repResp = await fetch(`/api/v1/reputation/${authState.user.username}`);
@@ -126,7 +158,6 @@
         }
       } catch { /* proposals non-critical */ }
 
-      // Subscribe to global trade hub for new-match alerts
       const hubSub = centrifuge!.newSubscription('trade_hub:proposals');
       hubSub.on('publication', (ctx) => {
         const payload = ctx.data;
@@ -181,7 +212,7 @@
 
   function proposeTrade() {
     if (!selectedOfferItem) { showToast('Please select a listing to offer'); return; }
-    showToast(`Trade preference registered for ${selectedListing.title}! The EcoBarter Matrix is calculating loops...`);
+    showToast(`Trade preference registered for ${selectedListing.title}! The EcoBarter Matrix is calculating loops…`);
     modals.listingDetail = false;
   }
 
@@ -272,6 +303,69 @@
     }
   }
 
+  // ── Profile functions ───────────────────────────────────────────────
+  function selectEmoji(e: string) {
+    profileEmoji = e;
+    localStorage.setItem('profile_emoji', e);
+    showEmojiPicker = false;
+  }
+
+  function selectColor(c: string) {
+    profileColor = c;
+    localStorage.setItem('profile_color', c);
+  }
+
+  function saveEditProfile() {
+    profileBio = editBio;
+    localStorage.setItem('profile_bio', profileBio);
+    showToast('Profile updated!', 'success');
+  }
+
+  function shareProfile() {
+    const url = `${window.location.origin}?user=${authState.user?.username}`;
+    navigator.clipboard.writeText(url).then(() => showToast('Profile link copied to clipboard!', 'success'));
+  }
+
+  async function changePassword() {
+    pwError = '';
+    pwSuccess = '';
+    if (!pwForm.current || !pwForm.next) { pwError = 'Please fill in all fields.'; return; }
+    if (pwForm.next !== pwForm.confirm) { pwError = 'New passwords do not match.'; return; }
+    if (pwForm.next.length < 8) { pwError = 'New password must be at least 8 characters.'; return; }
+    pwLoading = true;
+    try {
+      const resp = await fetch('/api/v1/auth/password', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState.token}` },
+        body: JSON.stringify({ current_password: pwForm.current, new_password: pwForm.next })
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        pwSuccess = 'Password updated successfully!';
+        pwForm = { current: '', next: '', confirm: '' };
+        showToast('Password changed!', 'success');
+      } else {
+        pwError = data.detail || 'Failed to update password.';
+      }
+    } catch {
+      pwError = 'Network error. Please try again.';
+    } finally {
+      pwLoading = false;
+    }
+  }
+
+  function saveSettings() {
+    localStorage.setItem('settings_notifs', String(settingsNotifs));
+    localStorage.setItem('settings_public', String(settingsPublic));
+    localStorage.setItem('settings_eco_alerts', String(settingsEcoAlerts));
+    showToast('Settings saved!', 'success');
+  }
+
+  function handleLogout() {
+    logout();
+    showAvatarMenu = false;
+  }
+
   function showToast(msg: string, type: string = '') {
     toastMsg = msg;
     toastType = type;
@@ -284,7 +378,15 @@
       modals.listingDetail = false;
     }
   }
+
+  function handleWindowClick(e: MouseEvent) {
+    const target = e.target as HTMLElement;
+    if (!target.closest('.avatar-wrap')) showAvatarMenu = false;
+    if (!target.closest('.profile-avatar-wrap')) showEmojiPicker = false;
+  }
 </script>
+
+<svelte:window onclick={handleWindowClick} />
 
 <svelte:head>
   <title>EcoBarter — Trade Sustainably, Live Freely</title>
@@ -308,7 +410,51 @@
   <div class="nav-right">
     {#if authState.user}
       <button class="btn btn-primary btn-sm" onclick={() => modals.newListing = true}>+ New Listing</button>
-      <button class="avatar" onclick={() => logout()} title="Logout">{authState.user.username.substring(0,2).toUpperCase()}</button>
+      <!-- Avatar dropdown -->
+      <div class="avatar-wrap">
+        <button
+          class="avatar {showAvatarMenu ? 'active' : ''}"
+          onclick={(e) => { e.stopPropagation(); showAvatarMenu = !showAvatarMenu; }}
+          title="Account menu"
+          style="background: linear-gradient(135deg, {profileColor}, {profileColor}cc)"
+        >
+          {#if profileEmoji}
+            <span style="font-size:1.05rem;line-height:1">{profileEmoji}</span>
+          {:else}
+            {authState.user.username.substring(0,2).toUpperCase()}
+          {/if}
+        </button>
+        {#if showAvatarMenu}
+          <div class="avatar-menu">
+            <div class="avatar-menu-header">
+              <div class="avatar-menu-avatar" style="background:linear-gradient(135deg,{profileColor},{profileColor}cc)">
+                {#if profileEmoji}<span style="font-size:1.2rem">{profileEmoji}</span>{:else}{authState.user.username.substring(0,2).toUpperCase()}{/if}
+              </div>
+              <div style="min-width:0">
+                <div class="avatar-menu-name">{authState.user.username}</div>
+                <div class="avatar-menu-email">{authState.user.email}</div>
+              </div>
+            </div>
+            <div class="avatar-menu-sep"></div>
+            <button class="avatar-menu-item" onclick={() => { setPage('profile'); profileTab='overview'; showAvatarMenu=false; }}>
+              <span class="menu-icon">👤</span> View Profile
+            </button>
+            <button class="avatar-menu-item" onclick={() => { setPage('profile'); profileTab='edit'; showAvatarMenu=false; }}>
+              <span class="menu-icon">✏️</span> Edit Profile
+            </button>
+            <button class="avatar-menu-item" onclick={() => { setPage('profile'); profileTab='security'; showAvatarMenu=false; }}>
+              <span class="menu-icon">🔒</span> Change Password
+            </button>
+            <button class="avatar-menu-item" onclick={() => { setPage('profile'); profileTab='settings'; showAvatarMenu=false; }}>
+              <span class="menu-icon">⚙️</span> Settings
+            </button>
+            <div class="avatar-menu-sep"></div>
+            <button class="avatar-menu-item danger" onclick={handleLogout}>
+              <span class="menu-icon">🚪</span> Sign Out
+            </button>
+          </div>
+        {/if}
+      </div>
     {:else}
       <button class="btn btn-primary btn-sm" onclick={() => goto('/login')}>Sign In</button>
     {/if}
@@ -462,41 +608,294 @@
 
 <!-- PROFILE -->
 <div class="page {currentPage === 'profile' ? 'active' : ''}" id="page-profile">
-  <div class="profile-header">
-    <div class="profile-avatar">{authState.user ? authState.user.username.substring(0,2).toUpperCase() : 'AJ'}</div>
-    <div class="profile-info">
-      <h2>{authState.user ? authState.user.username : 'Guest'}</h2>
-      <p>Earth Region · {userRank}</p>
-      <div class="stars" style="color:{userReputation > 50 ? '#10b981' : '#f59e0b'}">★★★★★</div>
-      <div class="stat-row">
-        <div class="stat"><div class="stat-val">{myItems.length}</div><div class="stat-label">Listings</div></div>
-        <div class="stat"><div class="stat-val">{userReputation.toFixed(1)}</div><div class="stat-label">Trust Score</div></div>
-        <div class="stat"><div class="stat-val">{chats.length}</div><div class="stat-label">Active Nodes</div></div>
-      </div>
-      <div style="margin-top:14px"><span class="eco-score">🌱 84 kg CO₂ saved</span></div>
+  {#if !authState.user}
+    <div style="text-align:center;padding:80px 20px">
+      <div style="font-size:3.5rem;margin-bottom:16px">🌿</div>
+      <h2 style="font-family:'Outfit',sans-serif;font-size:1.6rem;margin-bottom:8px">Sign in to view your profile</h2>
+      <p style="color:var(--text3);margin-bottom:24px">Join EcoBarter and start trading sustainably.</p>
+      <button class="btn btn-primary" onclick={() => goto('/login')}>Sign In</button>
     </div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-    <div>
-      <div class="section-header"><div class="section-title">My Listings</div></div>
-      {#each myItems as l}
-        <div class="card" style="margin-bottom:9px;display:flex;align-items:center;gap:12px;padding:16px 18px;">
-          <div style="font-size:1.8rem;background:var(--surface2);width:44px;height:44px;border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center">{l.emoji}</div>
-          <div style="flex:1"><div style="font-weight:600;font-size:0.92rem">{l.title}</div><div class="text-sm text-muted">{l.cat}</div></div>
-          <button class="btn btn-outline btn-sm">Edit</button>
+  {:else}
+    <!-- ── Profile header card ── -->
+    <div class="profile-card-new">
+      <div class="profile-banner-new"></div>
+      <div class="profile-card-body-new">
+        <!-- Avatar with emoji picker -->
+        <div class="profile-avatar-wrap">
+          <button
+            class="profile-avatar-xl"
+            style="background:linear-gradient(135deg,{profileColor},{profileColor}cc)"
+            onclick={(e) => { e.stopPropagation(); showEmojiPicker = !showEmojiPicker; }}
+            title="Change avatar"
+          >
+            {#if profileEmoji}
+              <span style="font-size:2.6rem;line-height:1">{profileEmoji}</span>
+            {:else}
+              {authState.user.username.substring(0,2).toUpperCase()}
+            {/if}
+            <div class="avatar-edit-badge">✏️</div>
+          </button>
+
+          {#if showEmojiPicker}
+            <div class="emoji-picker-panel" onclick={(e) => e.stopPropagation()}>
+              <div class="picker-section-title">Pick an avatar</div>
+              <div class="emoji-grid">
+                {#each avatarEmojis as e}
+                  <button class="emoji-opt {profileEmoji === e ? 'selected' : ''}" onclick={() => selectEmoji(e)}>{e}</button>
+                {/each}
+              </div>
+              <div class="picker-section-title" style="margin-top:12px">Background color</div>
+              <div class="color-grid">
+                {#each avatarColors as c}
+                  <button
+                    class="color-opt {profileColor === c ? 'selected' : ''}"
+                    style="background:{c}"
+                    onclick={() => selectColor(c)}
+                  ></button>
+                {/each}
+              </div>
+              {#if profileEmoji}
+                <button
+                  class="btn btn-outline btn-sm"
+                  style="margin-top:10px;width:100%;font-size:0.78rem"
+                  onclick={() => { profileEmoji=''; localStorage.removeItem('profile_emoji'); showEmojiPicker=false; }}
+                >Reset to initials</button>
+              {/if}
+            </div>
+          {/if}
         </div>
+
+        <!-- Name + bio + actions -->
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+            <h2 style="font-size:1.65rem;font-weight:900;letter-spacing:-0.6px;font-family:'Outfit',sans-serif">{authState.user.username}</h2>
+            <span class="rank-pill">{userRank}</span>
+          </div>
+          <p style="font-size:0.85rem;color:var(--text3);margin-bottom:8px">{authState.user.email}</p>
+          {#if profileBio}
+            <p style="font-size:0.93rem;color:var(--text2);line-height:1.6;max-width:500px;margin-bottom:12px">{profileBio}</p>
+          {:else}
+            <p style="font-size:0.85rem;color:var(--text3);font-style:italic;margin-bottom:12px">
+              No bio yet —
+              <button onclick={() => profileTab='edit'} style="color:var(--accent);background:none;border:none;cursor:pointer;text-decoration:underline;font-size:inherit;font-style:normal">add one</button>
+            </p>
+          {/if}
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-outline btn-sm" onclick={shareProfile}>
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"/></svg>
+              Share Profile
+            </button>
+            <button class="btn btn-outline btn-sm" onclick={() => profileTab='edit'}>
+              <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+              Edit Profile
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats row -->
+      <div class="profile-stats-row">
+        <div class="profile-stat-item">
+          <div class="profile-stat-val">{myItems.length}</div>
+          <div class="profile-stat-lbl">Listings</div>
+        </div>
+        <div class="profile-stat-div"></div>
+        <div class="profile-stat-item">
+          <div class="profile-stat-val" style="color:var(--accent)">{userReputation.toFixed(1)}</div>
+          <div class="profile-stat-lbl">Trust Score</div>
+        </div>
+        <div class="profile-stat-div"></div>
+        <div class="profile-stat-item">
+          <div class="profile-stat-val">{chats.length}</div>
+          <div class="profile-stat-lbl">Active Trades</div>
+        </div>
+        <div class="profile-stat-div"></div>
+        <div class="profile-stat-item">
+          <div class="profile-stat-val" style="color:#10b981">{chats.length * 5} kg</div>
+          <div class="profile-stat-lbl">CO₂ Saved</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-tabs -->
+    <div class="profile-subtabs">
+      {#each [['overview','Overview'],['listings','My Listings'],['edit','Edit Profile'],['security','Security'],['settings','Settings']] as [tab, label]}
+        <button class="profile-subtab {profileTab === tab ? 'active' : ''}" onclick={() => profileTab = tab as typeof profileTab}>{label}</button>
       {/each}
-      {#if myItems.length === 0}
-        <div style="color:var(--text3);font-size:0.88rem;padding:16px 0">No listings yet. <button onclick={() => modals.newListing = true} style="color:var(--accent);font-weight:600;background:none;border:none;cursor:pointer;text-decoration:underline">Add one</button>.</div>
-      {/if}
     </div>
-    <div>
-      <div class="section-header"><div class="section-title">Recent Reviews</div></div>
-      <div class="review-card"><div class="stars" style="font-size:0.82rem">★★★★★</div><p class="text-sm" style="margin-top:8px;line-height:1.6">"Super smooth trade! Alex was communicative and the vintage lamp was exactly as described."</p><p class="text-sm text-muted" style="margin-top:6px">— Morgan T. · 3 days ago</p></div>
-      <div class="review-card"><div class="stars" style="font-size:0.82rem">★★★★★</div><p class="text-sm" style="margin-top:8px;line-height:1.6">"Great swap, would trade again. Showed up on time with the board games as promised."</p><p class="text-sm text-muted" style="margin-top:6px">— Priya K. · 1 week ago</p></div>
-      <div class="review-card"><div class="stars" style="font-size:0.82rem">★★★★☆</div><p class="text-sm" style="margin-top:8px;line-height:1.6">"Friendly and honest. The guitar had a small scratch not mentioned, but we worked it out."</p><p class="text-sm text-muted" style="margin-top:6px">— Sam R. · 2 weeks ago</p></div>
-    </div>
-  </div>
+
+    <!-- ── Overview tab ── -->
+    {#if profileTab === 'overview'}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div class="card" style="padding:22px 24px">
+          <div class="section-title" style="margin-bottom:18px">🌱 Eco Impact</div>
+          <div style="display:flex;flex-direction:column;gap:16px">
+            <div>
+              <div class="eco-bar-row" style="margin-bottom:7px">
+                <span style="font-size:0.83rem;color:var(--text2);font-weight:600">CO₂ Saved</span>
+                <span style="font-size:0.83rem;font-weight:700;color:#10b981">{chats.length * 5} kg</span>
+              </div>
+              <div class="eco-progress-track"><div class="eco-progress-fill" style="width:{Math.min(chats.length * 12, 100)}%"></div></div>
+            </div>
+            <div class="eco-bar-row">
+              <span style="font-size:0.83rem;color:var(--text2);font-weight:600">Items Diverted from Landfill</span>
+              <span style="font-size:0.83rem;font-weight:700;color:var(--accent)">{myItems.length + chats.length}</span>
+            </div>
+            <div class="eco-bar-row">
+              <span style="font-size:0.83rem;color:var(--text2);font-weight:600">Trust Rank</span>
+              <span class="rank-pill" style="font-size:0.73rem;padding:2px 10px">{userRank}</span>
+            </div>
+            <div class="eco-bar-row">
+              <span style="font-size:0.83rem;color:var(--text2);font-weight:600">EigenTrust Score</span>
+              <span style="font-size:0.83rem;font-weight:700;color:var(--text)">{userReputation.toFixed(1)} / 100</span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="section-header"><div class="section-title">Recent Reviews</div></div>
+          <div class="review-card"><div class="stars" style="font-size:0.82rem">★★★★★</div><p class="text-sm" style="margin-top:8px;line-height:1.6">"Super smooth trade! {authState.user.username} was communicative and the item was exactly as described."</p><p class="text-sm text-muted" style="margin-top:6px">— Morgan T. · 3 days ago</p></div>
+          <div class="review-card"><div class="stars" style="font-size:0.82rem">★★★★★</div><p class="text-sm" style="margin-top:8px;line-height:1.6">"Great swap, would trade again. Showed up on time with everything as promised."</p><p class="text-sm text-muted" style="margin-top:6px">— Priya K. · 1 week ago</p></div>
+          <div class="review-card"><div class="stars" style="font-size:0.82rem">★★★★☆</div><p class="text-sm" style="margin-top:8px;line-height:1.6">"Friendly and honest. Would definitely trade again."</p><p class="text-sm text-muted" style="margin-top:6px">— Sam R. · 2 weeks ago</p></div>
+        </div>
+      </div>
+
+    <!-- ── My Listings tab ── -->
+    {:else if profileTab === 'listings'}
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <div class="section-title">My Listings</div>
+          <button class="btn btn-primary btn-sm" onclick={() => modals.newListing = true}>+ New Listing</button>
+        </div>
+        {#each myItems as l}
+          <div style="display:flex;align-items:center;gap:14px;padding:14px 24px;border-bottom:1px solid var(--border);transition:background 0.15s" onmouseenter={(e)=>(e.currentTarget as HTMLElement).style.background='var(--surface2)'} onmouseleave={(e)=>(e.currentTarget as HTMLElement).style.background=''}>
+            <div style="font-size:1.9rem;width:46px;height:46px;background:var(--accent-light);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;flex-shrink:0">{l.emoji}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:0.93rem">{l.title}</div>
+              <div class="text-sm text-muted">{l.cat} · Wants: {l.wants}</div>
+            </div>
+            <span class="tag green" style="flex-shrink:0">Active</span>
+            <button class="btn btn-outline btn-sm">Edit</button>
+          </div>
+        {/each}
+        {#if myItems.length === 0}
+          <div style="text-align:center;padding:52px 24px;color:var(--text3)">
+            <div style="font-size:2.8rem;margin-bottom:12px">📦</div>
+            <p style="font-size:0.9rem;margin-bottom:16px">You haven't listed anything yet.</p>
+            <button class="btn btn-primary btn-sm" onclick={() => modals.newListing = true}>Create Your First Listing</button>
+          </div>
+        {/if}
+      </div>
+
+    <!-- ── Edit Profile tab ── -->
+    {:else if profileTab === 'edit'}
+      <div class="card" style="max-width:560px;padding:28px">
+        <div class="section-title" style="margin-bottom:20px">Edit Profile</div>
+        <div class="form-group">
+          <label for="edit-username">Username</label>
+          <input id="edit-username" type="text" value={authState.user.username} disabled style="opacity:0.55;cursor:not-allowed">
+          <p style="font-size:0.76rem;color:var(--text3);margin-top:5px">Username cannot be changed after registration.</p>
+        </div>
+        <div class="form-group">
+          <label for="edit-email">Email Address</label>
+          <input id="edit-email" type="email" value={authState.user.email} disabled style="opacity:0.55;cursor:not-allowed">
+        </div>
+        <div class="form-group">
+          <label for="edit-bio">Bio</label>
+          <textarea id="edit-bio" bind:value={editBio} placeholder="Tell the EcoBarter community about yourself, what you trade, your eco goals…" rows="4" style="min-height:100px"></textarea>
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-primary" onclick={saveEditProfile}>Save Changes</button>
+          <button class="btn btn-outline" onclick={() => { editBio = profileBio; }}>Cancel</button>
+        </div>
+      </div>
+
+    <!-- ── Security tab ── -->
+    {:else if profileTab === 'security'}
+      <div class="card" style="max-width:460px;padding:28px">
+        <div class="section-title" style="margin-bottom:6px">Change Password</div>
+        <p style="font-size:0.84rem;color:var(--text3);margin-bottom:22px;line-height:1.55">Choose a strong password you don't use elsewhere. At least 8 characters.</p>
+
+        {#if pwError}
+          <div class="alert-error">{pwError}</div>
+        {/if}
+        {#if pwSuccess}
+          <div class="alert-success">{pwSuccess}</div>
+        {/if}
+
+        <div class="form-group">
+          <label for="pw-current">Current Password</label>
+          <input id="pw-current" type="password" bind:value={pwForm.current} autocomplete="current-password" placeholder="Your current password">
+        </div>
+        <div class="form-group">
+          <label for="pw-new">New Password</label>
+          <input id="pw-new" type="password" bind:value={pwForm.next} autocomplete="new-password" placeholder="At least 8 characters">
+        </div>
+        <div class="form-group">
+          <label for="pw-confirm">Confirm New Password</label>
+          <input id="pw-confirm" type="password" bind:value={pwForm.confirm} autocomplete="new-password" placeholder="Repeat new password">
+        </div>
+        <button class="btn btn-primary" onclick={changePassword} disabled={pwLoading} style={pwLoading ? 'opacity:0.7;cursor:not-allowed' : ''}>
+          {pwLoading ? 'Updating…' : 'Update Password'}
+        </button>
+
+        <div style="margin-top:36px;padding-top:24px;border-top:1px solid var(--border)">
+          <div style="font-weight:700;font-size:0.92rem;color:var(--warn);margin-bottom:6px">Danger Zone</div>
+          <p style="font-size:0.82rem;color:var(--text3);margin-bottom:14px;line-height:1.5">Permanently delete your account and all associated data. This cannot be undone.</p>
+          <button class="btn btn-danger btn-sm" onclick={() => showToast('Account deletion is coming soon.', 'error')}>Delete Account</button>
+        </div>
+      </div>
+
+    <!-- ── Settings tab ── -->
+    {:else if profileTab === 'settings'}
+      <div class="card" style="max-width:520px;padding:28px">
+        <div class="section-title" style="margin-bottom:22px">Preferences</div>
+
+        <div class="settings-row">
+          <div>
+            <div style="font-weight:600;font-size:0.92rem">Trade Match Notifications</div>
+            <div style="font-size:0.8rem;color:var(--text3);margin-top:3px">Get notified when a new K-way loop matches your listings</div>
+          </div>
+          <button class="toggle {settingsNotifs ? 'on' : ''}" onclick={() => { settingsNotifs = !settingsNotifs; saveSettings(); }}><span></span></button>
+        </div>
+        <div class="settings-row">
+          <div>
+            <div style="font-weight:600;font-size:0.92rem">Public Profile</div>
+            <div style="font-size:0.8rem;color:var(--text3);margin-top:3px">Allow others to view your profile and reputation score</div>
+          </div>
+          <button class="toggle {settingsPublic ? 'on' : ''}" onclick={() => { settingsPublic = !settingsPublic; saveSettings(); }}><span></span></button>
+        </div>
+        <div class="settings-row">
+          <div>
+            <div style="font-weight:600;font-size:0.92rem">Eco Impact Alerts</div>
+            <div style="font-size:0.8rem;color:var(--text3);margin-top:3px">Weekly summary of your CO₂ savings and eco milestones</div>
+          </div>
+          <button class="toggle {settingsEcoAlerts ? 'on' : ''}" onclick={() => { settingsEcoAlerts = !settingsEcoAlerts; saveSettings(); }}><span></span></button>
+        </div>
+
+        <div style="margin-top:30px;padding-top:22px;border-top:1px solid var(--border)">
+          <div class="section-title" style="font-size:0.9rem;margin-bottom:14px">Account Info</div>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div class="info-row">
+              <span>User ID</span>
+              <code style="font-size:0.79rem;background:var(--surface2);padding:3px 9px;border-radius:6px;color:var(--text3);letter-spacing:0.02em">{authState.user.id}</code>
+            </div>
+            <div class="info-row">
+              <span>Email</span>
+              <span style="color:var(--text2);font-size:0.88rem">{authState.user.email}</span>
+            </div>
+            <div class="info-row">
+              <span>Member Since</span>
+              <span style="color:var(--text3);font-size:0.88rem">EcoBarter Alpha</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:24px;padding-top:20px;border-top:1px solid var(--border)">
+          <button class="btn btn-outline btn-sm" style="color:var(--warn);border-color:rgba(225,29,72,0.3)" onclick={handleLogout}>Sign Out of EcoBarter</button>
+        </div>
+      </div>
+    {/if}
+  {/if}
 </div>
 
 <!-- NEW LISTING MODAL -->
