@@ -1,0 +1,97 @@
+# Traefik v3 dynamic configuration — file provider
+# {{ env "DOMAIN" }} is resolved at runtime by Traefik's Go template engine.
+
+http:
+  routers:
+    identity:
+      rule: 'Host(`{{ env "DOMAIN" }}`) && PathPrefix(`/api/v1/auth`)'
+      entryPoints: [websecure]
+      service: identity
+      tls:
+        certResolver: le
+      middlewares: [secure-headers]
+
+    catalog:
+      rule: 'Host(`{{ env "DOMAIN" }}`) && PathPrefix(`/api/v1/catalog`)'
+      entryPoints: [websecure]
+      service: catalog
+      tls:
+        certResolver: le
+      middlewares: [secure-headers]
+
+    trade:
+      rule: 'Host(`{{ env "DOMAIN" }}`) && PathPrefix(`/api/v1/trade`)'
+      entryPoints: [websecure]
+      service: trade
+      tls:
+        certResolver: le
+      middlewares: [secure-headers]
+
+    reputation:
+      rule: 'Host(`{{ env "DOMAIN" }}`) && PathPrefix(`/api/v1/reputation`)'
+      entryPoints: [websecure]
+      service: reputation
+      tls:
+        certResolver: le
+      middlewares: [secure-headers]
+
+    centrifugo:
+      rule: 'Host(`{{ env "DOMAIN" }}`) && PathPrefix(`/connection`)'
+      entryPoints: [websecure]
+      service: centrifugo
+      tls:
+        certResolver: le
+      middlewares: [secure-headers]
+
+    frontend:
+      rule: 'Host(`{{ env "DOMAIN" }}`)'
+      entryPoints: [websecure]
+      service: frontend
+      tls:
+        certResolver: le
+      middlewares: [secure-headers]
+
+  services:
+    identity:
+      loadBalancer:
+        servers:
+          - url: "http://identity-service:80"
+
+    catalog:
+      loadBalancer:
+        servers:
+          - url: "http://catalog-service:80"
+
+    trade:
+      loadBalancer:
+        servers:
+          - url: "http://trade-engine:8000"
+
+    reputation:
+      loadBalancer:
+        servers:
+          - url: "http://reputation-service:80"
+
+    centrifugo:
+      loadBalancer:
+        servers:
+          - url: "http://centrifugo:8000"
+
+    frontend:
+      loadBalancer:
+        servers:
+          - url: "http://web-frontend:3000"
+
+  middlewares:
+    secure-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        stsPreload: true
+        referrerPolicy: strict-origin-when-cross-origin
+        customResponseHeaders:
+          Server: ""
+          X-Powered-By: ""
