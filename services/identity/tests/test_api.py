@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # Override DB before importing app so SQLite is used
 SQLALCHEMY_TEST_URL = "sqlite:///./test_identity.db"
@@ -50,13 +51,20 @@ def override_get_db():
 app.dependency_overrides[get_db] = override_get_db
 
 # Bypass rate limiting in tests.
-# sync_wrapper calls _check_request_limit then reads request.state.view_rate_limit
-# via _inject_headers. Stub both so neither sets nor reads the attribute.
+# sync_wrapper reads request.state.view_rate_limit (argument evaluated before
+# _inject_headers is called), so we must set it via middleware before the
+# endpoint runs. We also stub _check_request_limit so no limits are enforced.
+class _SetViewRateLimit(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        request.state.view_rate_limit = None
+        return await call_next(request)
+
+app.add_middleware(_SetViewRateLimit)
+
 async def _no_rate_limit(request, endpoint_func, in_middleware=False):
     pass
 
 app.state.limiter._check_request_limit = _no_rate_limit
-app.state.limiter._inject_headers = lambda *args, **kwargs: None
 
 client = TestClient(app)
 
