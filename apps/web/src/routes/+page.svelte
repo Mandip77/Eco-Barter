@@ -46,6 +46,12 @@
   let pwSuccess = $state('');
   let pwLoading = $state(false);
 
+  // ── Delete account ──────────────────────────────────────────────────
+  let showDeleteModal = $state(false);
+  let deletePassword = $state('');
+  let deleteError = $state('');
+  let deleteLoading = $state(false);
+
   // ── Settings ────────────────────────────────────────────────────────
   let settingsNotifs = $state(true);
   let settingsPublic = $state(true);
@@ -364,6 +370,32 @@
   function handleLogout() {
     logout();
     showAvatarMenu = false;
+  }
+
+  async function deleteAccount() {
+    deleteError = '';
+    if (!deletePassword) { deleteError = 'Please enter your password to confirm.'; return; }
+    deleteLoading = true;
+    try {
+      const resp = await fetch('/api/v1/auth/account', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState.token}` },
+        body: JSON.stringify({ password: deletePassword })
+      });
+      if (resp.status === 204) {
+        // Clear all local data then redirect
+        localStorage.clear();
+        logout();
+        goto('/login');
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        deleteError = data.detail || 'Failed to delete account. Please try again.';
+      }
+    } catch {
+      deleteError = 'Network error. Please try again.';
+    } finally {
+      deleteLoading = false;
+    }
   }
 
   function showToast(msg: string, type: string = '') {
@@ -841,7 +873,7 @@
         <div style="margin-top:36px;padding-top:24px;border-top:1px solid var(--border)">
           <div style="font-weight:700;font-size:0.92rem;color:var(--warn);margin-bottom:6px">Danger Zone</div>
           <p style="font-size:0.82rem;color:var(--text3);margin-bottom:14px;line-height:1.5">Permanently delete your account and all associated data. This cannot be undone.</p>
-          <button class="btn btn-danger btn-sm" onclick={() => showToast('Account deletion is coming soon.', 'error')}>Delete Account</button>
+          <button class="btn btn-danger btn-sm" onclick={() => { showDeleteModal = true; deletePassword = ''; deleteError = ''; }}>Delete Account</button>
         </div>
       </div>
 
@@ -955,6 +987,56 @@
       </button>
     </div>
   {/if}
+</div>
+
+<!-- DELETE ACCOUNT MODAL -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="modal-overlay {showDeleteModal ? 'open' : ''}" onclick={(e) => { if ((e.target as HTMLElement).classList.contains('modal-overlay')) { showDeleteModal = false; } }}>
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <div class="modal-title" style="color:var(--warn)">Delete Account</div>
+      <button class="close-btn" onclick={() => showDeleteModal = false}>×</button>
+    </div>
+
+    <div style="background:rgba(225,29,72,0.06);border:1.5px solid rgba(225,29,72,0.2);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:20px">
+      <div style="font-weight:700;font-size:0.88rem;color:var(--warn);margin-bottom:6px">⚠ This action is permanent and cannot be undone</div>
+      <ul style="font-size:0.82rem;color:#dc2626;line-height:1.7;padding-left:18px;margin:0">
+        <li>Your account and login credentials will be deleted</li>
+        <li>All your listings will be removed</li>
+        <li>Your reputation score and trade history will be erased</li>
+        <li>You will not be able to recover this account</li>
+      </ul>
+    </div>
+
+    {#if deleteError}
+      <div class="alert-error">{deleteError}</div>
+    {/if}
+
+    <div class="form-group">
+      <label for="delete-confirm-pw">Enter your password to confirm</label>
+      <input
+        id="delete-confirm-pw"
+        type="password"
+        bind:value={deletePassword}
+        placeholder="Your current password"
+        autocomplete="current-password"
+        style="border-color:rgba(225,29,72,0.35)"
+      >
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:4px">
+      <button
+        class="btn btn-danger"
+        style="flex:1;{deleteLoading ? 'opacity:0.7;cursor:not-allowed' : ''}"
+        onclick={deleteAccount}
+        disabled={deleteLoading}
+      >
+        {deleteLoading ? 'Deleting…' : 'Permanently Delete My Account'}
+      </button>
+      <button class="btn btn-outline" onclick={() => showDeleteModal = false}>Cancel</button>
+    </div>
+  </div>
 </div>
 
 {#if toastMsg}
