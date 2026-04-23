@@ -27,7 +27,7 @@
   let searchQuery = $state('');
   let activeChatId: number | null = $state(null);
   let selectedOfferItem: number | null = $state(null);
-  let modals = $state({ newListing: false, listingDetail: false });
+  let modals = $state({ newListing: false, listingDetail: false, editListing: false });
   let newListing = $state({ title: '', cat: 'Electronics', desc: '', wants: '', emoji: '📦', condition: 'Good' });
   let selectedListing: any = $state(null);
 
@@ -58,6 +58,13 @@
   let showScheduler = $state<number | null>(null);
   let scheduleInput = $state('');
   let scheduleLoading = $state(false);
+
+  // ── Edit listing ──────────────────────────────────────────────────
+  let editingListing: any = $state(null);
+  let editForm = $state({ title: '', cat: 'Electronics', desc: '', wants: '', emoji: '📦', condition: 'Good' });
+  let editImage: File | null = $state(null);
+  let editImagePreview = $state('');
+  let editLoading = $state(false);
 
   // ── Profile customization ─────────────────────────────────────────
   let profileEmoji = $state('');
@@ -215,6 +222,16 @@
     reader.readAsDataURL(file);
   }
 
+  function handleEditImageSelect(e: Event) {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
+    if (file.size > 1024 * 1024) { showToast('Image must be under 1 MB.', 'error'); return; }
+    editImage = file;
+    const reader = new FileReader();
+    reader.onload = (ev) => { editImagePreview = ev.target?.result as string || ''; };
+    reader.readAsDataURL(file);
+  }
+
   // ── AI suggestion ─────────────────────────────────────────────────
   async function getAISuggestion(listingId: string) {
     if (!authState.token) { goto('/login'); return; }
@@ -236,6 +253,66 @@
     } finally {
       aiLoading = false;
     }
+  }
+
+  // ── Edit / delete listing ─────────────────────────────────────────
+  function openEditModal(l: any) {
+    editingListing = l;
+    editForm = { title: l.title, cat: l.cat, desc: l.desc, wants: l.wants, emoji: l.emoji || '📦', condition: l.condition || 'Good' };
+    editImagePreview = l.image_data || '';
+    editImage = null;
+    modals.editListing = true;
+  }
+
+  async function saveEditListing() {
+    if (!editForm.title.trim()) { showToast('Title is required.', 'error'); return; }
+    editLoading = true;
+    try {
+      const payload = {
+        title: editForm.title, category: editForm.cat,
+        description: editForm.desc || 'No description.',
+        wants: { preferences: { query: editForm.wants || 'Open to offers' } },
+        emoji: editForm.emoji || '📦', condition: editForm.condition,
+        tags: [editForm.cat],
+        location: editingListing.location || { type: 'Point', coordinates: [-71.0589, 42.3601] }
+      };
+      const resp = await fetch(`/api/v1/catalog/products/${editingListing.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState.token}` },
+        body: JSON.stringify(payload)
+      });
+      if (resp.ok) {
+        if (editImage) {
+          const fd = new FormData();
+          fd.append('file', editImage);
+          const imgResp = await fetch(`/api/v1/catalog/products/${editingListing.id}/image`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${authState.token}` },
+            body: fd
+          });
+          if (imgResp.ok) { const d = await imgResp.json(); editImagePreview = d.image_data || editImagePreview; }
+        }
+        modals.editListing = false;
+        showToast(`"${editForm.title}" updated!`, 'success');
+        await loadListings();
+      } else { showToast('Failed to update listing.', 'error'); }
+    } catch { showToast('Network error.', 'error'); }
+    finally { editLoading = false; }
+  }
+
+  async function deleteListing(e: MouseEvent, l: any) {
+    e.stopPropagation();
+    if (!confirm(`Delete "${l.title}"? This cannot be undone.`)) return;
+    try {
+      const resp = await fetch(`/api/v1/catalog/products/${l.id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${authState.token}` }
+      });
+      if (resp.status === 204) {
+        listings = listings.filter(x => x.id !== l.id);
+        showToast('Listing deleted.', 'success');
+      } else { showToast('Failed to delete listing.', 'error'); }
+    } catch { showToast('Network error.', 'error'); }
   }
 
   // ── Reviews ───────────────────────────────────────────────────────
@@ -382,6 +459,7 @@
   async function addListing() {
     if (!authState.user) { goto('/login'); return; }
     if (!newListing.title.trim()) { showToast('Please enter a title.'); return; }
+    if (!newListingImage) { showToast('Please add a photo of your item before posting.', 'error'); return; }
     try {
       const payload = {
         title: newListing.title, category: newListing.cat,
@@ -470,7 +548,7 @@
 
   function closeModals(e: MouseEvent) {
     if ((e.target as HTMLElement).classList.contains('modal-overlay')) {
-      modals.newListing = false; modals.listingDetail = false;
+      modals.newListing = false; modals.listingDetail = false; modals.editListing = false;
     }
   }
 
@@ -905,7 +983,8 @@
             </div>
             <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:0.93rem">{l.title}</div><div class="text-sm text-muted">{l.cat} · {l.condition}</div></div>
             <span class="tag green" style="flex-shrink:0">Active</span>
-            <button class="btn btn-outline btn-sm">Edit</button>
+            <button class="btn btn-outline btn-sm" onclick={() => openEditModal(l)}>Edit</button>
+            <button class="btn btn-outline btn-sm" style="color:var(--warn);border-color:rgba(225,29,72,0.3)" onclick={(e) => deleteListing(e, l)}>Delete</button>
           </div>
         {/each}
         {#if myItems.length === 0}<div style="text-align:center;padding:52px 24px;color:var(--text3)"><div style="font-size:2.8rem;margin-bottom:12px">📦</div><p style="font-size:0.9rem;margin-bottom:16px">No listings yet.</p><button class="btn btn-primary btn-sm" onclick={() => modals.newListing=true}>Create First Listing</button></div>{/if}
@@ -921,6 +1000,7 @@
             </div>
             <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:0.93rem">{l.title}</div><div class="text-sm text-muted">by {l.user} · {l.condition}</div></div>
             <span class="condition-badge" style="background:{conditionColors[l.condition]}18;color:{conditionColors[l.condition]};border-color:{conditionColors[l.condition]}44">{l.condition}</span>
+            <button class="btn btn-primary btn-sm" onclick={(e) => { e.stopPropagation(); openListing(l.id); }}>Propose Trade</button>
             <button class="btn btn-outline btn-sm" onclick={(e) => toggleSave(e, l.id)}>Unsave</button>
           </button>
         {/each}
@@ -1007,6 +1087,44 @@
     <div class="form-group"><label for="nl-wants">Looking to trade for…</label><input id="nl-wants" type="text" bind:value={newListing.wants} placeholder="e.g. Camera lenses, or open to offers"></div>
     <div class="form-group"><label for="nl-emoji">Emoji Icon</label><input id="nl-emoji" type="text" bind:value={newListing.emoji} placeholder="📷" maxlength="4" style="width:80px"></div>
     <button class="btn btn-primary w-full" onclick={addListing}>Post Listing</button>
+  </div>
+</div>
+
+<!-- EDIT LISTING MODAL -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="modal-overlay {modals.editListing?'open':''}" onclick={closeModals}>
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Edit Listing</div><button class="close-btn" onclick={() => modals.editListing=false}>×</button></div>
+
+    <div class="form-group">
+      <label>Photo</label>
+      <div class="image-upload-area" onclick={() => document.getElementById('el-image')?.click()}>
+        {#if editImagePreview}
+          <img src={editImagePreview} alt="preview" style="width:100%;height:100%;object-fit:cover;border-radius:var(--radius-sm)">
+          <button class="image-clear-btn" onclick={(e) => { e.stopPropagation(); editImage=null; editImagePreview=''; }}>×</button>
+        {:else}
+          <div style="text-align:center;color:var(--text3)">
+            <div style="font-size:2rem;margin-bottom:6px">📷</div>
+            <div style="font-size:0.82rem">Click to replace photo</div>
+          </div>
+        {/if}
+      </div>
+      <input id="el-image" type="file" accept="image/*" onchange={handleEditImageSelect} style="display:none">
+    </div>
+
+    <div class="form-group"><label for="el-title">Item / Service Name</label><input id="el-title" type="text" bind:value={editForm.title}></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group"><label for="el-cat">Category</label><select id="el-cat" bind:value={editForm.cat}>{#each categories.filter(c=>c!=='All') as c}<option>{c}</option>{/each}</select></div>
+      <div class="form-group"><label for="el-cond">Condition</label><select id="el-cond" bind:value={editForm.condition}>{#each CONDITIONS as c}<option>{c}</option>{/each}</select></div>
+    </div>
+    <div class="form-group"><label for="el-desc">Description</label><textarea id="el-desc" bind:value={editForm.desc}></textarea></div>
+    <div class="form-group"><label for="el-wants">Looking to trade for…</label><input id="el-wants" type="text" bind:value={editForm.wants}></div>
+    <div class="form-group"><label for="el-emoji">Emoji Icon</label><input id="el-emoji" type="text" bind:value={editForm.emoji} maxlength="4" style="width:80px"></div>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary w-full" onclick={saveEditListing} disabled={editLoading}>{editLoading ? 'Saving…' : 'Save Changes'}</button>
+      <button class="btn btn-outline" onclick={() => modals.editListing=false}>Cancel</button>
+    </div>
   </div>
 </div>
 
