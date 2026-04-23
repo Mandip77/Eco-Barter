@@ -12,10 +12,12 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import os
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
+from starlette.middleware.base import BaseHTTPMiddleware
 
 # ─────────────────────────────────────────────────────────────
 # Wire up SQLite before importing the app
@@ -50,15 +52,29 @@ test_engine = create_engine(
 TestSession = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
 TestBase.metadata.create_all(bind=test_engine)
 
-# Monkey-patch the module before importing main
+# Set TESTING before importing main so create_all is skipped at module level
+os.environ["TESTING"] = "1"
+
 import main as rep_main
 rep_main.engine = test_engine
 rep_main.SessionLocal = TestSession
+# Create all tables (including Review) on the test engine
+rep_main.Base.metadata.create_all(bind=test_engine)
 
 from main import app, calculate_eigentrust
 
-# Disable rate limiting so tests don't accumulate against the per-minute limits
-app.state.limiter._enabled = False
+# Bypass rate limiting — pre-set view_rate_limit so sync_wrapper arg evaluation succeeds
+class _SetViewRateLimit(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        request.state.view_rate_limit = None
+        return await call_next(request)
+
+app.add_middleware(_SetViewRateLimit)
+
+async def _no_rate_limit(request, endpoint_func, in_middleware=False):
+    pass
+
+app.state.limiter._check_request_limit = _no_rate_limit
 
 client = TestClient(app)
 

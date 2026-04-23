@@ -56,7 +56,8 @@ class ReviewCreate(PydanticModel):
     comment: str = ""
 
 
-Base.metadata.create_all(bind=engine)
+if not os.getenv("TESTING"):
+    Base.metadata.create_all(bind=engine)
 
 
 def _get_rank(score: float) -> str:
