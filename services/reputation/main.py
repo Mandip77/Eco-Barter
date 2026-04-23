@@ -6,6 +6,9 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime, timezone
 import os
+import jwt as pyjwt
+from fastapi import Header, Depends
+from pydantic import BaseModel as PydanticModel
 
 limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="EcoBarter Reputation Service")
@@ -33,6 +36,27 @@ class TradeProposal(Base):
     verified_d = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class Review(Base):
+    __tablename__ = "reviews"
+    id = Column(Integer, primary_key=True, index=True)
+    trade_id = Column(Integer, index=True)
+    reviewer_id = Column(String, index=True)
+    reviewee_id = Column(String, index=True)
+    score = Column(Integer)  # 1–5
+    comment = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class ReviewCreate(PydanticModel):
+    trade_id: int
+    reviewee_id: str
+    score: int  # 1–5
+    comment: str = ""
+
+
+Base.metadata.create_all(bind=engine)
 
 
 def _get_rank(score: float) -> str:
@@ -126,6 +150,24 @@ def _eco_impact(user_id: str) -> float:
     return round(count * ECO_KG_PER_TRADE, 1)
 
 
+def get_current_user_id(authorization: str = Header(None)) -> str:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = authorization.split("Bearer ")[1]
+    try:
+        payload = pyjwt.decode(
+            token,
+            os.getenv("JWT_SECRET", "super_secret_dev_key_do_not_use_in_prod"),
+            algorithms=["HS256"],
+        )
+        user_id = payload.get("sub")
+        if not user_id:
+            raise HTTPException(status_code=401, detail="Invalid token payload")
+        return user_id
+    except pyjwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
 @app.get("/api/v1/reputation/global")
 @limiter.limit("30/minute")
 def get_global_reputation(request: Request):
@@ -164,4 +206,51 @@ def get_user_reputation(request: Request, user_id: str):
         "eigentrust_score": score,
         "rank": _get_rank(score),
         "eco_impact_kg": _eco_impact(user_id),
+    }
+
+
+@app.post("/api/v1/reputation/reviews", status_code=201)
+@limiter.limit("10/minute")
+def submit_review(
+    request: Request,
+    body: ReviewCreate,
+    reviewer_id: str = Depends(get_current_user_id),
+):
+    if not 1 <= body.score <= 5:
+        raise HTTPException(status_code=422, detail="Score must be between 1 and 5")
+    if reviewer_id == body.reviewee_id:
+        raise HTTPException(status_code=400, detail="Cannot review yourself")
+    db = SessionLocal()
+    review = Review(
+        trade_id=body.trade_id,
+        reviewer_id=reviewer_id,
+        reviewee_id=body.reviewee_id,
+        score=body.score,
+        comment=body.comment[:500] if body.comment else "",
+    )
+    db.add(review)
+    db.commit()
+    db.refresh(review)
+    db.close()
+    return {"id": review.id, "message": "Review submitted"}
+
+
+@app.get("/api/v1/reputation/reviews/{user_id}")
+@limiter.limit("60/minute")
+def get_user_reviews(request: Request, user_id: str):
+    db = SessionLocal()
+    reviews = db.query(Review).filter(Review.reviewee_id == user_id).order_by(Review.created_at.desc()).limit(20).all()
+    db.close()
+    return {
+        "reviews": [
+            {
+                "id": r.id,
+                "trade_id": r.trade_id,
+                "reviewer_id": r.reviewer_id,
+                "score": r.score,
+                "comment": r.comment,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in reviews
+        ]
     }

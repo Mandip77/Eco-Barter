@@ -1,0 +1,32 @@
+{
+  "name": "EcoBarter",
+  "short_name": "EcoBarter",
+  "description": "Sustainable marketplace — trade what you have, get what you need. No money needed.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f3f8f5",
+  "theme_color": "#16a34a",
+  "orientation": "portrait-primary",
+  "categories": ["shopping", "lifestyle", "social"],
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Browse Swaps",
+      "url": "/?page=browse",
+      "description": "Browse available trade listings"
+    },
+    {
+      "name": "New Listing",
+      "url": "/?new=1",
+      "description": "Post a new item for trade"
+    }
+  ]
+}

@@ -58,4 +58,6 @@ type TradeProposal struct {
 	UserD     string `json:"user_d,omitempty"`
 	ItemD     string `json:"item_d,omitempty"`
 	VerifiedD bool   `gorm:"default:false" json:"verified_d"`
+
+	ScheduledAt *time.Time `gorm:"column:scheduled_at" json:"scheduled_at,omitempty"`
 }

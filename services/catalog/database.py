@@ -13,6 +13,7 @@ class Database:
     client: AsyncIOMotorClient = None
     db = None
     collection = None
+    saves = None
 
 db = Database()
 
@@ -21,7 +22,8 @@ async def connect_to_mongo():
     db.client = AsyncIOMotorClient(MONGO_URL)
     db.db = db.client[DB_NAME]
     db.collection = db.db[COLLECTION_NAME]
-    
+    db.saves = db.db["saves"]
+
     # Ensure Geospatial Index on the location field
     try:
         await db.collection.create_index([("location", pymongo.GEOSPHERE)])

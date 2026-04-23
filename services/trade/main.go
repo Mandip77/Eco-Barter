@@ -213,6 +213,48 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "Verification recorded", "proposal": proposal})
 	})
 
+	type ScheduleRequest struct {
+		TradeID     uint   `json:"trade_id" binding:"required"`
+		ScheduledAt string `json:"scheduled_at" binding:"required"` // RFC3339 datetime string
+	}
+
+	r.POST("/api/v1/trade/schedule", AuthRequired(), func(c *gin.Context) {
+		currentUser := c.GetString("username")
+		var req ScheduleRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		scheduledAt, err := time.Parse(time.RFC3339, req.ScheduledAt)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scheduled_at must be an RFC3339 datetime (e.g. 2026-05-01T14:00:00Z)"})
+			return
+		}
+
+		var proposal TradeProposal
+		if err := DB.First(&proposal, req.TradeID).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Trade proposal not found"})
+			return
+		}
+
+		isParticipant := proposal.UserA == currentUser || proposal.UserB == currentUser ||
+			(proposal.K >= 3 && proposal.UserC == currentUser) ||
+			(proposal.K >= 4 && proposal.UserD == currentUser)
+		if !isParticipant {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You are not part of this trade"})
+			return
+		}
+
+		proposal.ScheduledAt = &scheduledAt
+		DB.Save(&proposal)
+		PublishToCentrifugo("trade_hub:proposals", map[string]interface{}{
+			"event":    "proposal_updated",
+			"proposal": proposal,
+		})
+		c.JSON(http.StatusOK, gin.H{"message": "Meetup scheduled", "proposal": proposal})
+	})
+
 	type MessageRequest struct {
 		TradeID uint   `json:"trade_id" binding:"required"`
 		Text    string `json:"text" binding:"required"`

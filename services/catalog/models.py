@@ -13,6 +13,7 @@ class ProductBase(BaseModel):
     title: str = Field(..., max_length=150)
     description: Optional[str] = None
     category: str
+    condition: str = "Good"
     emoji: str = Field(default="📦", max_length=10)
     wants: WantList = Field(default_factory=WantList)
     tags: List[str] = Field(default_factory=list)

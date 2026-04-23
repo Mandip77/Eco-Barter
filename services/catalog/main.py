@@ -7,7 +7,7 @@ from typing import List, Optional
 
 import jwt
 from bson import ObjectId
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile, File
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile, File, Response as FastAPIResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -233,3 +233,102 @@ async def get_product_image(request: Request, product_id: str):
     if not doc.get("image_data"):
         raise HTTPException(status_code=404, detail="No image uploaded for this product")
     return {"product_id": product_id, "image_data": doc["image_data"]}
+
+
+@app.post("/api/v1/catalog/saves/{product_id}", status_code=201)
+@limiter.limit("60/minute")
+async def save_product(
+    request: Request,
+    product_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    if not ObjectId.is_valid(product_id):
+        raise HTTPException(status_code=400, detail="Invalid Product ID")
+    await mongodb.saves.update_one(
+        {"user_id": user_id, "product_id": product_id},
+        {"$setOnInsert": {"user_id": user_id, "product_id": product_id, "saved_at": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return {"product_id": product_id, "saved": True}
+
+
+@app.delete("/api/v1/catalog/saves/{product_id}", status_code=204)
+@limiter.limit("60/minute")
+async def unsave_product(
+    request: Request,
+    product_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    await mongodb.saves.delete_one({"user_id": user_id, "product_id": product_id})
+    return FastAPIResponse(status_code=204)
+
+
+@app.get("/api/v1/catalog/saves")
+@limiter.limit("60/minute")
+async def list_saves(
+    request: Request,
+    user_id: str = Depends(get_current_user_id),
+):
+    cursor = mongodb.saves.find({"user_id": user_id}, {"product_id": 1, "_id": 0})
+    ids = [doc["product_id"] async for doc in cursor]
+    return {"saved_ids": ids}
+
+
+@app.post("/api/v1/catalog/products/{product_id}/suggest")
+@limiter.limit("10/minute")
+async def suggest_trade(
+    request: Request,
+    product_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    import httpx
+    if not ObjectId.is_valid(product_id):
+        raise HTTPException(status_code=400, detail="Invalid Product ID")
+    target = await mongodb.collection.find_one({"_id": ObjectId(product_id)})
+    if not target:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    cursor = mongodb.collection.find({"owner_id": user_id}).limit(10)
+    my_listings = [doc async for doc in cursor]
+
+    if not my_listings:
+        return {"suggestion": "Add some listings first so I can suggest the best trade match!", "tips": []}
+
+    target_wants = target.get("wants", {}).get("preferences", {}).get("query", "open to offers")
+    my_items_text = "\n".join(
+        f"- {l.get('title')} ({l.get('category', '')}): {str(l.get('description', ''))[:80]}"
+        for l in my_listings
+    )
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return {"suggestion": "AI suggestions are not configured on this server yet.", "tips": []}
+
+    prompt = (
+        f"You are a helpful trade advisor for EcoBarter, a sustainable goods exchange.\n\n"
+        f"Target listing: \"{target.get('title')}\" — the owner wants: {target_wants}\n\n"
+        f"My available listings:\n{my_items_text}\n\n"
+        f"In 2–3 sentences, tell me which of MY listings would make the strongest trade offer for this item and why. "
+        f"Be specific and practical. If none match, suggest what kind of item would seal the deal."
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": "claude-haiku-4-5-20251001",
+                    "max_tokens": 250,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+        if resp.status_code == 200:
+            return {"suggestion": resp.json()["content"][0]["text"]}
+        return {"suggestion": "Could not generate a suggestion right now. Try again shortly."}
+    except Exception:
+        return {"suggestion": "AI suggestion service is temporarily unavailable."}
