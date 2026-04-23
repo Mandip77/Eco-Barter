@@ -6,7 +6,7 @@ RUN apk upgrade --no-cache
 
 WORKDIR /app
 COPY go.mod go.sum ./
-RUN go mod download
+RUN go mod download && go mod tidy
 
 COPY . .
 # Disable CGO, strip debug info, build a fully static binary
