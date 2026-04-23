@@ -17,9 +17,9 @@
 	<meta name="application-name" content="EcoBarter" />
 	<meta property="og:site_name" content="EcoBarter" />
 	<meta property="og:type" content="website" />
-	<meta property="og:image" content="/og-image.png" />
-	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:image" content="/og-image.png" />
+	<meta property="og:image" content="/logo.svg" />
+	<meta name="twitter:card" content="summary" />
+	<meta name="twitter:image" content="/logo.svg" />
 </svelte:head>
 
 {@render children()}
