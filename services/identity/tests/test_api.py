@@ -49,8 +49,13 @@ def override_get_db():
 
 app.dependency_overrides[get_db] = override_get_db
 
-# Bypass rate limiting — _enabled=False doesn't work in slowapi 0.1.9
-app.state.limiter._check_request_limit = lambda *args, **kwargs: None
+# Bypass rate limiting in tests.
+# _check_request_limit must be async and must set request.state.view_rate_limit
+# because sync_wrapper reads it immediately after calling this method.
+async def _no_rate_limit(request, endpoint_func, in_middleware=False):
+    request.state.view_rate_limit = None
+
+app.state.limiter._check_request_limit = _no_rate_limit
 
 client = TestClient(app)
 
