@@ -394,10 +394,10 @@ func TestVerify_AlreadyCompleted_Returns400(t *testing.T) {
 	r := setupRouter()
 
 	p := TradeProposal{
-		Status:    "completed",
-		UserA:     "alice", ItemA: "Camera",
-		UserB:     "bob", ItemB: "Books",
-		UserC:     "carol", ItemC: "Guitar",
+		Status: "completed",
+		UserA:  "alice", ItemA: "Camera",
+		UserB: "bob", ItemB: "Books",
+		UserC: "carol", ItemC: "Guitar",
 		VerifiedA: true, VerifiedB: true, VerifiedC: true,
 	}
 	DB.Create(&p)

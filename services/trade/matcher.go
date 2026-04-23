@@ -139,8 +139,8 @@ func tryK3Match(tx *gorm.DB, a *Item, targetCategory string) (bool, error) {
 		K:      3,
 		Status: "pending",
 		UserA:  a.OwnerID, ItemA: a.Title,
-		UserB:  bItem.OwnerID, ItemB: bItem.Title,
-		UserC:  cItem.OwnerID, ItemC: cItem.Title,
+		UserB: bItem.OwnerID, ItemB: bItem.Title,
+		UserC: cItem.OwnerID, ItemC: cItem.Title,
 	}
 	if err := tx.Create(&proposal).Error; err != nil {
 		return false, err
@@ -189,9 +189,9 @@ func tryK4Match(tx *gorm.DB, a *Item, targetCategory string) (bool, error) {
 		K:      4,
 		Status: "pending",
 		UserA:  a.OwnerID, ItemA: a.Title,
-		UserB:  bItem.OwnerID, ItemB: bItem.Title,
-		UserC:  cItem.OwnerID, ItemC: cItem.Title,
-		UserD:  dItem.OwnerID, ItemD: dItem.Title,
+		UserB: bItem.OwnerID, ItemB: bItem.Title,
+		UserC: cItem.OwnerID, ItemC: cItem.Title,
+		UserD: dItem.OwnerID, ItemD: dItem.Title,
 	}
 	if err := tx.Create(&proposal).Error; err != nil {
 		return false, err

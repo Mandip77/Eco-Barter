@@ -58,10 +58,10 @@ func consumeProductEvents() {
 	// We'll create a durable consumer push subscription
 	_, err := JetStream.Subscribe(subject, func(m *nats.Msg) {
 		log.Printf("[NATS] Received message on %s", m.Subject)
-		
+
 		// Pass Event to Worker Pool
 		EventChan <- m.Data
-		
+
 		// Acknowledge receipt
 		m.Ack()
 	}, nats.Durable("TRADE_ENGINE_WORKER"), nats.ManualAck())
@@ -69,7 +69,7 @@ func consumeProductEvents() {
 	if err != nil {
 		log.Fatalf("Failed to subscribe to %s: %v", subject, err)
 	}
-	
+
 	log.Printf("Listening for NATS events tightly bound to stream: %s, subject: %s", streamName, subject)
 }
 

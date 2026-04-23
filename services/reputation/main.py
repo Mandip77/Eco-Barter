@@ -36,12 +36,10 @@ class TradeProposal(Base):
 
 
 def _get_rank(score: float) -> str:
-    if score >= 80:
-        return "Eco-Champion"
     if score >= 50:
-        return "Trusted"
+        return "Eco-Champion"
     if score >= 20:
-        return "Regular"
+        return "Trusted"
     return "Novice"
 
 
@@ -128,19 +126,6 @@ def _eco_impact(user_id: str) -> float:
     return round(count * ECO_KG_PER_TRADE, 1)
 
 
-@app.get("/api/v1/reputation/{user_id}")
-@limiter.limit("60/minute")
-def get_user_reputation(request: Request, user_id: str):
-    scores = calculate_eigentrust()
-    score = scores.get(user_id, 10.0)
-    return {
-        "user_id": user_id,
-        "eigentrust_score": score,
-        "rank": _get_rank(score),
-        "eco_impact_kg": _eco_impact(user_id),
-    }
-
-
 @app.get("/api/v1/reputation/global")
 @limiter.limit("30/minute")
 def get_global_reputation(request: Request):
@@ -166,4 +151,17 @@ def get_leaderboard(request: Request, limit: int = 10):
             }
             for idx, (uid, score) in enumerate(ranked)
         ]
+    }
+
+
+@app.get("/api/v1/reputation/{user_id}")
+@limiter.limit("60/minute")
+def get_user_reputation(request: Request, user_id: str):
+    scores = calculate_eigentrust()
+    score = scores.get(user_id, 10.0)
+    return {
+        "user_id": user_id,
+        "eigentrust_score": score,
+        "rank": _get_rank(score),
+        "eco_impact_kg": _eco_impact(user_id),
     }

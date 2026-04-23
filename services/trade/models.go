@@ -21,13 +21,13 @@ type ProductEvent struct {
 
 // Item represents a mirrored entry dynamically persisting events inside PostgreSQL cleanly.
 type Item struct {
-	ID        string         `gorm:"primaryKey" json:"id"`
-	OwnerID   string         `gorm:"index" json:"owner_id"`
-	Category  string         `gorm:"index" json:"category"`
-	Title     string         `json:"title"`
+	ID        string          `gorm:"primaryKey" json:"id"`
+	OwnerID   string          `gorm:"index" json:"owner_id"`
+	Category  string          `gorm:"index" json:"category"`
+	Title     string          `json:"title"`
 	Wants     json.RawMessage `gorm:"type:jsonb" json:"wants"`
-	Status    string         `gorm:"default:'available'" json:"status"` // available, matched
-	CreatedAt time.Time      `json:"created_at"`
+	Status    string          `gorm:"default:'available'" json:"status"` // available, matched
+	CreatedAt time.Time       `json:"created_at"`
 }
 
 // TradeProposal represents an identified match recorded in PostgreSQL.
@@ -38,7 +38,7 @@ type TradeProposal struct {
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
 
-	K      int    `gorm:"default:3" json:"k"` // loop size: 2, 3, or 4
+	K      int    `gorm:"default:3" json:"k"`              // loop size: 2, 3, or 4
 	Status string `gorm:"default:'pending'" json:"status"` // pending, in_progress, completed, cancelled
 
 	UserA     string `json:"user_a"`

@@ -8,6 +8,8 @@ pyjwt==2.8.0
 passlib[bcrypt]==1.7.4
 bcrypt==3.2.2
 python-multipart==0.0.6
+pydantic[email]
+slowapi==0.1.9
 
 # Test-only
 pytest==7.4.3

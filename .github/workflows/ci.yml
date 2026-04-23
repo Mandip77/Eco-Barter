@@ -22,7 +22,7 @@ jobs:
           cache-dependency-path: apps/web/package-lock.json
       - name: Install Dependencies
         working-directory: ./apps/web
-        run: npm ci || npm install
+        run: npm ci --legacy-peer-deps || npm install --legacy-peer-deps
       - name: Build Web Frontend
         working-directory: ./apps/web
         run: npm run build
@@ -37,7 +37,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.23'
           cache: true
           cache-dependency-path: services/trade/go.sum
       - name: Tidy & Download Modules
