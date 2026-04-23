@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"log"
 
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -27,7 +26,7 @@ func EvaluateMatch(eventData []byte) {
 		OwnerID:  event.OwnerID,
 		Category: event.Category,
 		Title:    event.Emoji + " " + event.Title,
-		Wants:    datatypes.JSON(wantsBytes),
+		Wants:    json.RawMessage(wantsBytes),
 		Status:   "available",
 	}
 

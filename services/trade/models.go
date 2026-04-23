@@ -1,9 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"time"
 
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -25,7 +25,7 @@ type Item struct {
 	OwnerID   string         `gorm:"index" json:"owner_id"`
 	Category  string         `gorm:"index" json:"category"`
 	Title     string         `json:"title"`
-	Wants     datatypes.JSON `json:"wants"`
+	Wants     json.RawMessage `gorm:"type:jsonb" json:"wants"`
 	Status    string         `gorm:"default:'available'" json:"status"` // available, matched
 	CreatedAt time.Time      `json:"created_at"`
 }

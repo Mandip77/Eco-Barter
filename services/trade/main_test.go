@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -496,9 +495,9 @@ func TestMessage_MissingText_Returns400(t *testing.T) {
 // EvaluateMatch (K=3 Circular Matching)
 // ─────────────────────────────────────────────────────────────
 
-func wantsJSON(category string) datatypes.JSON {
+func wantsJSON(category string) json.RawMessage {
 	b, _ := json.Marshal(map[string]string{"category": category})
-	return datatypes.JSON(b)
+	return json.RawMessage(b)
 }
 
 func TestEvaluateMatch_NoMatch(t *testing.T) {
