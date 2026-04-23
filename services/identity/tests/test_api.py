@@ -50,12 +50,13 @@ def override_get_db():
 app.dependency_overrides[get_db] = override_get_db
 
 # Bypass rate limiting in tests.
-# _check_request_limit must be async and must set request.state.view_rate_limit
-# because sync_wrapper reads it immediately after calling this method.
+# sync_wrapper calls _check_request_limit then reads request.state.view_rate_limit
+# via _inject_headers. Stub both so neither sets nor reads the attribute.
 async def _no_rate_limit(request, endpoint_func, in_middleware=False):
-    request.state.view_rate_limit = None
+    pass
 
 app.state.limiter._check_request_limit = _no_rate_limit
+app.state.limiter._inject_headers = lambda *args, **kwargs: None
 
 client = TestClient(app)
 
