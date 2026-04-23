@@ -2,6 +2,8 @@
 
 **A sustainable, money-free marketplace powered by circular trade loops.**
 
+**Live:** https://ecobarter.man-dip.dev
+
 EcoBarter lets people trade goods and skills directly — no currency involved. Its matching engine finds K-way circular loops (2-party swaps, 3-way rings, and 4-way chains) so that even items with no direct counterpart can find a home. Physical handoffs are verified with QR codes, and a trust graph tracks reputation across every completed trade.
 
 ---
@@ -61,14 +63,14 @@ EcoBarter lets people trade goods and skills directly — no currency involved. 
 
 | Layer | Technology |
 |---|---|
-| Frontend | SvelteKit 2, Svelte 5, Tailwind CSS 4, Vite 6, Centrifuge.js |
-| Identity | FastAPI, SQLAlchemy, Alembic, PyJWT, slowapi, PostgreSQL |
-| Catalog | FastAPI, Motor (async), slowapi, MongoDB |
-| Trade Engine | Go 1.25, Gin, GORM, golang-jwt, golang-migrate, PostgreSQL |
+| Frontend | SvelteKit 2, Svelte 5, Tailwind CSS 4, Vite 8, Centrifuge.js |
+| Identity | FastAPI, SQLAlchemy, PyJWT, slowapi, PostgreSQL |
+| Catalog | FastAPI, Motor (async), slowapi, MongoDB, NATS |
+| Trade Engine | Go, Gin, GORM, golang-jwt, PostgreSQL |
 | Reputation | FastAPI, SQLAlchemy, EigenTrust power-iteration, PostgreSQL |
 | Real-time | Centrifugo v5, Redis 7 |
-| Messaging | NATS JetStream |
-| Gateway | Traefik v2.10 |
+| Messaging | NATS 2.10 JetStream |
+| Gateway | Traefik v3.3 |
 | Containers | Docker Compose, distroless runtime (Go), non-root (Python) |
 | Monorepo | Nx, pnpm |
 
@@ -120,7 +122,7 @@ EcoBarter/
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/your-org/ecobarter.git
+git clone https://github.com/Mandip77/Eco-Barter.git
 cd ecobarter
 cp .env.example .env
 # Edit .env with your local values — see .env.example for all required fields
@@ -200,6 +202,8 @@ All 12 required variables are checked for presence and weak/default values. JWT 
 | `DOMAIN` | Production domain (e.g. `ecobarter.example.com`) |
 | `ACME_EMAIL` | Email for Let's Encrypt certificate registration |
 | `ALLOWED_ORIGINS` | Comma-separated CORS origins |
+| `ORIGIN` | SvelteKit origin URL — required for production (e.g. `https://ecobarter.man-dip.dev`) |
+| `ANTHROPIC_API_KEY` | Enables AI trade suggestions in the catalog service (optional) |
 | `VITE_API_BASE_URL` | API base URL injected into the frontend build |
 
 See `.env.example` for a complete annotated template.
@@ -225,7 +229,9 @@ Each completed trade contributes to a user's EigenTrust score:
 - The trust graph is built from completed `trade_proposals` (each participant trusts all others in the loop)
 - Power iteration runs until convergence (Δ < 1×10⁻⁶) or 100 iterations
 - Scores decay: `score × 0.5^(days_idle / 90)` — a dormant account loses half its trust every 90 days
-- Tiers: **Novice** (<10), **Regular** (10–50), **Trusted** (50–200), **Eco-Champion** (>200)
+- Tiers: **Novice** (score < 20), **Trusted** (20–50), **Eco-Champion** (> 50)
+- Default score for new users: 10.0
+- Estimated CO₂ saved: 5 kg per completed trade
 
 ---
 
