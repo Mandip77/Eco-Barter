@@ -833,14 +833,18 @@
               {:else}
                 {l.emoji}
               {/if}
-              <!-- Bookmark button -->
-              <button
+              <!-- Bookmark (div avoids button-inside-button invalid HTML) -->
+              <!-- svelte-ignore a11y_interactive_supports_focus -->
+              <div
+                role="button"
+                tabindex="0"
                 class="bookmark-btn {savedIds.has(l.id) ? 'saved' : ''}"
                 onclick={(e) => toggleSave(e, l.id)}
+                onkeydown={(e) => e.key === 'Enter' && toggleSave(e as unknown as MouseEvent, l.id)}
                 title={savedIds.has(l.id) ? 'Remove from saved' : 'Save listing'}
               >
                 {savedIds.has(l.id) ? '🔖' : '🏷️'}
-              </button>
+              </div>
               <!-- Distance badge -->
               {#if l.distKm !== null}
                 <span class="distance-badge">{l.distKm < 1 ? `${(l.distKm*1000).toFixed(0)} m` : `${l.distKm.toFixed(1)} km`}</span>
@@ -1100,7 +1104,8 @@
           {/if}
         </div>
         {#each listings.filter(l => savedIds.has(l.id)) as l}
-          <button class="listing-row {batchSelected.has(l.id)?'selected':''}" onclick={() => openListing(l.id)}>
+          <!-- svelte-ignore a11y_interactive_supports_focus -->
+          <div class="listing-row {batchSelected.has(l.id)?'selected':''}" role="button" tabindex="0" onclick={() => openListing(l.id)} onkeydown={(e)=>e.key==='Enter'&&openListing(l.id)}>
             <button class="batch-check" onclick={(e)=>{e.stopPropagation();toggleBatchSelect(l.id);}} style="background:none;border:1.5px solid {batchSelected.has(l.id)?'var(--accent)':'var(--border)'};border-radius:6px;width:22px;height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:0.85rem;cursor:pointer;color:{batchSelected.has(l.id)?'var(--accent)':'var(--text3)'}">
               {batchSelected.has(l.id)?'✓':''}
             </button>
@@ -1114,7 +1119,7 @@
             <span class="condition-badge" style="background:{conditionColors[l.condition]}18;color:{conditionColors[l.condition]};border-color:{conditionColors[l.condition]}44">{l.condition}</span>
             <button class="btn btn-primary btn-sm" onclick={(e) => { e.stopPropagation(); openListing(l.id); }}>Propose Trade</button>
             <button class="btn btn-outline btn-sm" onclick={(e) => toggleSave(e, l.id)}>Unsave</button>
-          </button>
+          </div>
         {/each}
         {#if savedIds.size === 0}<div style="text-align:center;padding:52px 24px;color:var(--text3)"><div style="font-size:2.8rem;margin-bottom:12px">🏷️</div><p>No saved listings yet. Tap 🏷️ on any listing to save it.</p></div>{/if}
       </div>
