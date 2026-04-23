@@ -5,7 +5,7 @@ services:
   # API Gateway (Traefik)
   # --------------------------------------------------------------------------
   traefik:
-    image: traefik:v2.10
+    image: traefik:v3.1
     user: root
     command:
       - "--api.insecure=true"
