@@ -28,6 +28,8 @@ class Product(ProductBase):
     created_at: datetime
     updated_at: datetime
     image_data: Optional[str] = None  # base64-encoded image, populated by image upload endpoint
+    view_count: int = 0
+    expires_at: Optional[datetime] = None
 
     class Config:
         populate_by_name = True

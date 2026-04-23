@@ -60,4 +60,7 @@ type TradeProposal struct {
 	VerifiedD bool   `gorm:"default:false" json:"verified_d"`
 
 	ScheduledAt *time.Time `gorm:"column:scheduled_at" json:"scheduled_at,omitempty"`
+
+	CounterItem string `json:"counter_item,omitempty"`
+	CounterBy   string `json:"counter_by,omitempty"`
 }

@@ -255,6 +255,47 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"message": "Meetup scheduled", "proposal": proposal})
 	})
 
+	type CounterRequest struct {
+		TradeID     uint   `json:"trade_id" binding:"required"`
+		CounterItem string `json:"counter_item" binding:"required"`
+	}
+
+	r.POST("/api/v1/trade/counter", AuthRequired(), func(c *gin.Context) {
+		currentUser := c.GetString("username")
+		var req CounterRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		var proposal TradeProposal
+		if err := DB.First(&proposal, req.TradeID).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Trade proposal not found"})
+			return
+		}
+
+		isParticipant := proposal.UserA == currentUser || proposal.UserB == currentUser ||
+			(proposal.K >= 3 && proposal.UserC == currentUser) ||
+			(proposal.K >= 4 && proposal.UserD == currentUser)
+		if !isParticipant {
+			c.JSON(http.StatusForbidden, gin.H{"error": "You are not part of this trade"})
+			return
+		}
+
+		proposal.CounterItem = req.CounterItem
+		proposal.CounterBy = currentUser
+		DB.Save(&proposal)
+		PublishToCentrifugo(fmt.Sprintf("chat_%d", proposal.ID), map[string]interface{}{
+			"from": "system",
+			"text": fmt.Sprintf("🔄 %s sent a counter-offer: %s", currentUser, req.CounterItem),
+		})
+		PublishToCentrifugo("trade_hub:proposals", map[string]interface{}{
+			"event":    "counter_proposal",
+			"proposal": proposal,
+		})
+		c.JSON(http.StatusOK, gin.H{"message": "Counter-proposal submitted", "proposal": proposal})
+	})
+
 	type MessageRequest struct {
 		TradeID uint   `json:"trade_id" binding:"required"`
 		Text    string `json:"text" binding:"required"`

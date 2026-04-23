@@ -2,7 +2,7 @@ import base64
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import jwt
@@ -75,6 +75,8 @@ async def create_product(
     product_dict["owner_id"] = user_id
     product_dict["created_at"] = now
     product_dict["updated_at"] = now
+    product_dict["view_count"] = 0
+    product_dict["expires_at"] = now + timedelta(days=30)
 
     result = await mongodb.collection.insert_one(product_dict)
     inserted = await mongodb.collection.find_one({"_id": result.inserted_id})
@@ -109,6 +111,12 @@ async def list_products(
                 "$maxDistance": max_distance,
             }
         }
+    now_utc = datetime.now(timezone.utc)
+    query["$or"] = [
+        {"expires_at": {"$exists": False}},
+        {"expires_at": None},
+        {"expires_at": {"$gt": now_utc}},
+    ]
 
     cursor = mongodb.collection.find(query).skip(skip).limit(limit)
     products = []
@@ -123,6 +131,7 @@ async def list_products(
 async def get_product(request: Request, product_id: str):
     if not ObjectId.is_valid(product_id):
         raise HTTPException(status_code=400, detail="Invalid Product ID")
+    await mongodb.collection.update_one({"_id": ObjectId(product_id)}, {"$inc": {"view_count": 1}})
     doc = await mongodb.collection.find_one({"_id": ObjectId(product_id)})
     if not doc:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -182,6 +191,28 @@ async def delete_product(
         raise HTTPException(status_code=403, detail="Not authorized to delete this product")
     await mongodb.collection.delete_one({"_id": ObjectId(product_id)})
     return None
+
+
+@app.post("/api/v1/catalog/products/{product_id}/bump")
+@limiter.limit("10/minute")
+async def bump_product(
+    request: Request,
+    product_id: str,
+    user_id: str = Depends(get_current_user_id),
+):
+    if not ObjectId.is_valid(product_id):
+        raise HTTPException(status_code=400, detail="Invalid Product ID")
+    existing = await mongodb.collection.find_one({"_id": ObjectId(product_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if existing.get("owner_id") != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    new_expiry = datetime.now(timezone.utc) + timedelta(days=30)
+    await mongodb.collection.update_one(
+        {"_id": ObjectId(product_id)},
+        {"$set": {"expires_at": new_expiry, "updated_at": datetime.now(timezone.utc)}}
+    )
+    return {"product_id": product_id, "expires_at": new_expiry.isoformat()}
 
 
 @app.post("/api/v1/catalog/products/{product_id}/image", response_model=Product)

@@ -525,3 +525,29 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* ── Profile avatar wrap ─────────────────────────────────────────── */
 .profile-avatar-wrap { position: relative; flex-shrink: 0; }
+
+/* ── Expiry badge ────────────────────────────────────────────────── */
+.expiry-badge {
+  display: inline-flex; align-items: center; font-size: 0.7rem; font-weight: 600;
+  padding: 1px 7px; border-radius: 99px;
+  background: var(--surface2); color: var(--text3); border: 1px solid var(--border);
+}
+.expiry-badge.expiring {
+  background: rgba(245,158,11,0.1); color: #b45309; border-color: rgba(245,158,11,0.35);
+}
+
+/* ── Counter-proposal panel ──────────────────────────────────────── */
+.counter-panel {
+  padding: 14px 28px; border-bottom: 1.5px solid rgba(99,102,241,0.25);
+  background: linear-gradient(135deg, rgba(99,102,241,0.05), rgba(139,92,246,0.04));
+}
+
+/* ── Trade history item ──────────────────────────────────────────── */
+.trade-hist-item {
+  display: flex; align-items: center; gap: 14px; padding: 14px 24px;
+  border-bottom: 1px solid var(--border); transition: background 0.15s;
+}
+.trade-hist-item:hover { background: var(--surface2); }
+
+/* ── Listing row selected state ──────────────────────────────────── */
+.listing-row.selected { background: var(--accent-light); }

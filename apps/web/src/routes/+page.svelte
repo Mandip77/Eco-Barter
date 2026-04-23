@@ -66,11 +66,22 @@
   let editImagePreview = $state('');
   let editLoading = $state(false);
 
+  // ── Trade history ─────────────────────────────────────────────────
+  let tradeHistory = $state<any[]>([]);
+
+  // ── Counter-proposal ──────────────────────────────────────────────
+  let showCounterPanel = $state<number | null>(null);
+  let counterItem = $state('');
+
+  // ── Batch propose (wishlist) ──────────────────────────────────────
+  let batchSelected = $state(new Set<string>());
+  let batchProposing = $state(false);
+
   // ── Profile customization ─────────────────────────────────────────
   let profileEmoji = $state('');
   let profileBio = $state('');
   let profileColor = $state('#16a34a');
-  let profileTab = $state<'overview'|'listings'|'saved'|'edit'|'security'|'settings'>('overview');
+  let profileTab = $state<'overview'|'listings'|'saved'|'history'|'edit'|'security'|'settings'>('overview');
   let showEmojiPicker = $state(false);
   let editBio = $state('');
   let showAvatarMenu = $state(false);
@@ -139,6 +150,8 @@
             image_data: dbItem.image_data || null,
             location: dbItem.location || null,
             distKm,
+            view_count: dbItem.view_count || 0,
+            expires_at: dbItem.expires_at || null,
           };
         });
       } else {
@@ -313,6 +326,51 @@
         showToast('Listing deleted.', 'success');
       } else { showToast('Failed to delete listing.', 'error'); }
     } catch { showToast('Network error.', 'error'); }
+  }
+
+  function shareListing(l: any) {
+    const url = `${window.location.origin}?listing=${l.id}`;
+    navigator.clipboard.writeText(url).then(() => showToast('Listing link copied!', 'success'));
+  }
+
+  async function bumpListing(e: MouseEvent, l: any) {
+    e.stopPropagation();
+    try {
+      const resp = await fetch(`/api/v1/catalog/products/${l.id}/bump`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authState.token}` }
+      });
+      if (resp.ok) { showToast(`"${l.title}" bumped — active for 30 more days!`, 'success'); await loadListings(); }
+      else { showToast('Bump failed.', 'error'); }
+    } catch { showToast('Network error.', 'error'); }
+  }
+
+  async function submitCounter(tradeId: number) {
+    if (!counterItem) { showToast('Select an item to counter with.', 'error'); return; }
+    try {
+      const resp = await fetch('/api/v1/trade/counter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState.token}` },
+        body: JSON.stringify({ trade_id: tradeId, counter_item: counterItem })
+      });
+      if (resp.ok) { showCounterPanel = null; counterItem = ''; showToast('Counter-proposal sent!', 'success'); }
+      else { showToast('Failed to send counter.', 'error'); }
+    } catch { showToast('Network error.', 'error'); }
+  }
+
+  function toggleBatchSelect(id: string) {
+    const next = new Set(batchSelected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    batchSelected = next;
+  }
+
+  function proposeBatch() {
+    if (batchSelected.size === 0) { showToast('Select at least one listing.', 'error'); return; }
+    batchProposing = true;
+    const firstId = [...batchSelected][0];
+    batchSelected = new Set();
+    batchProposing = false;
+    openListing(firstId);
   }
 
   // ── Reviews ───────────────────────────────────────────────────────
@@ -596,18 +654,25 @@
         });
         if (propResp.ok) {
           const proposals = await propResp.json();
-          chats = proposals.map((p: any) => ({
-            id: p.ID, with: [p.user_a, p.user_b, p.user_c, p.user_d].filter(Boolean).join(', '),
-            initials: 'TR', item: `Match Loop #${p.ID}`, online: true, messages: [],
+          const active = proposals.filter((p: any) => p.status !== 'completed' && p.status !== 'cancelled');
+          tradeHistory = proposals
+            .filter((p: any) => p.status === 'completed' || p.status === 'cancelled')
+            .map((p: any) => ({
+              id: p.id, with: [p.user_a, p.user_b, p.user_c, p.user_d].filter(Boolean).join(', '),
+              item: `Match Loop #${p.id}`, status: p.status, created_at: p.created_at,
+            }));
+          chats = active.map((p: any) => ({
+            id: p.id, with: [p.user_a, p.user_b, p.user_c, p.user_d].filter(Boolean).join(', '),
+            initials: 'TR', item: `Match Loop #${p.id}`, online: true, messages: [],
             proposal: { me: [p.item_a], them: [p.item_b, p.item_c, p.user_d ? p.item_d : null].filter(Boolean) },
             scheduledAt: p.scheduled_at || null,
           }));
-          proposals.forEach((p: any) => {
-            const ch = `chat_${p.ID}`;
+          active.forEach((p: any) => {
+            const ch = `chat_${p.id}`;
             if (!chatSubscriptions[ch]) {
               const sub = centrifuge!.newSubscription(ch);
               sub.on('publication', (ctx) => {
-                const ind = chats.findIndex(c => c.id === p.ID);
+                const ind = chats.findIndex(c => c.id === p.id);
                 if (ind > -1) chats[ind].messages = [...chats[ind].messages, {
                   from: ctx.data.from === authState.user?.username ? 'me' : ctx.data.from,
                   text: ctx.data.text,
@@ -627,8 +692,8 @@
         if (!p) return;
         const isParticipant = [p.user_a, p.user_b, p.user_c, p.user_d].includes(authState.user?.username);
         if (isParticipant) {
-          if (p.status === 'pending' && !chats.find((c: any) => c.id === p.ID)) {
-            chats = [{ id: p.ID, with: [p.user_a,p.user_b,p.user_c,p.user_d].filter(Boolean).join(', '), initials: 'TR', item: `Match Loop #${p.ID}`, online: true, messages: [], proposal: { me: [p.item_a||'?'], them: [p.item_b,p.item_c,p.user_d?p.item_d:null].filter(Boolean) }, scheduledAt: null }, ...chats];
+          if (p.status === 'pending' && !chats.find((c: any) => c.id === p.id)) {
+            chats = [{ id: p.id, with: [p.user_a,p.user_b,p.user_c,p.user_d].filter(Boolean).join(', '), initials: 'TR', item: `Match Loop #${p.id}`, online: true, messages: [], proposal: { me: [p.item_a||'?'], them: [p.item_b,p.item_c,p.user_d?p.item_d:null].filter(Boolean) }, scheduledAt: null }, ...chats];
             if (currentPage !== 'chat') { pendingMatchCount++; showToast('New trade loop matched!', 'match'); }
           } else if (p.status === 'completed') {
             showToast(`Trade Loop #${p.ID} completed! +5 kg CO₂ saved.`, 'success');
@@ -786,7 +851,7 @@
                 <div class="listing-title" style="flex:1;margin:0">{l.title}</div>
                 <span class="condition-badge" style="background:{conditionColors[l.condition]}18;color:{conditionColors[l.condition]};border-color:{conditionColors[l.condition]}44">{l.condition}</span>
               </div>
-              <div class="listing-user">by {l.user}{#if l.mine} <span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">You</span>{/if}</div>
+              <div class="listing-user">by {l.user}{#if l.mine} <span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">You</span>{/if}{#if l.view_count > 0}<span style="margin-left:6px;font-size:0.74rem;color:var(--text3)">👁 {l.view_count}</span>{/if}</div>
               <div class="listing-tags">{#each l.tags as t}<span class="tag {t==='Eco-friendly'?'green':''}">{t}</span>{/each}</div>
               <div class="listing-wants">Wants: <strong>{l.wants.split(',')[0]}…</strong></div>
             </div>
@@ -840,6 +905,25 @@
           </div>
         </div>
 
+        <!-- Counter-proposal panel -->
+        {#if showCounterPanel === activeChatId}
+          <div class="counter-panel">
+            <div style="font-weight:700;font-size:0.88rem;margin-bottom:10px">🔄 Counter-Offer — pick your item</div>
+            <div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:10px">
+              {#each myItems as i}
+                <button class="proposal-item" style="{counterItem===i.title?'border-color:var(--accent);background:var(--accent-light);color:var(--accent2)':''}" onclick={() => counterItem=i.title}>
+                  <span>{i.emoji}</span>{i.title}
+                </button>
+              {/each}
+              {#if myItems.length===0}<span class="text-muted text-sm">No listings to offer — add one first.</span>{/if}
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn btn-primary btn-sm" onclick={() => submitCounter(activeChatId as number)} disabled={!counterItem}>Send Counter</button>
+              <button class="btn btn-outline btn-sm" onclick={() => { showCounterPanel=null; counterItem=''; }}>Cancel</button>
+            </div>
+          </div>
+        {/if}
+
         <!-- Schedule meetup panel -->
         {#if showScheduler === activeChatId}
           <div class="schedule-panel">
@@ -865,7 +949,7 @@
               <span class="arrow">⇄</span>
               <div class="proposal-items">{#each activeChat.proposal.them as i}<div class="proposal-item"><span>{i.split(' ')[0]}</span>{i.split(' ').slice(1).join(' ')}</div>{/each}</div>
               <button class="btn btn-primary btn-sm" onclick={() => acceptTrade(activeChatId as number)}>Accept</button>
-              <button class="btn btn-outline btn-sm" onclick={() => showToast('Counter-proposal coming soon.')}>Counter</button>
+              <button class="btn btn-outline btn-sm" onclick={() => { showCounterPanel = showCounterPanel === activeChatId ? null : activeChatId; counterItem=''; }}>🔄 Counter</button>
             </div>
           {/if}
           {#each activeChat.messages as m}
@@ -941,7 +1025,7 @@
     </div>
 
     <div class="profile-subtabs">
-      {#each [['overview','Overview'],['listings','My Listings'],['saved','Saved'],['edit','Edit Profile'],['security','Security'],['settings','Settings']] as [tab, label]}
+      {#each [['overview','Overview'],['listings','My Listings'],['saved','Wishlist'],['history','History'],['edit','Edit Profile'],['security','Security'],['settings','Settings']] as [tab, label]}
         <button class="profile-subtab {profileTab===tab?'active':''}" onclick={() => profileTab = tab as typeof profileTab}>{label}</button>
       {/each}
     </div>
@@ -981,8 +1065,19 @@
             <div style="width:46px;height:46px;background:var(--accent-light);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">
               {#if l.image_data}<img src={l.image_data} alt={l.title} style="width:100%;height:100%;object-fit:cover">{:else}<span style="font-size:1.9rem">{l.emoji}</span>{/if}
             </div>
-            <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:0.93rem">{l.title}</div><div class="text-sm text-muted">{l.cat} · {l.condition}</div></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:0.93rem">{l.title}</div>
+              <div class="text-sm text-muted" style="display:flex;align-items:center;gap:7px;flex-wrap:wrap">
+                {l.cat} · {l.condition}
+                {#if l.expires_at}
+                  <span class="expiry-badge {new Date(l.expires_at) < new Date(Date.now()+3*86400000)?'expiring':''}">
+                    expires {new Date(l.expires_at).toLocaleDateString([],{month:'short',day:'numeric'})}
+                  </span>
+                {/if}
+              </div>
+            </div>
             <span class="tag green" style="flex-shrink:0">Active</span>
+            {#if l.expires_at}<button class="btn btn-outline btn-sm" onclick={(e)=>bumpListing(e,l)}>Bump</button>{/if}
             <button class="btn btn-outline btn-sm" onclick={() => openEditModal(l)}>Edit</button>
             <button class="btn btn-outline btn-sm" style="color:var(--warn);border-color:rgba(225,29,72,0.3)" onclick={(e) => deleteListing(e, l)}>Delete</button>
           </div>
@@ -992,19 +1087,61 @@
 
     {:else if profileTab === 'saved'}
       <div class="card" style="padding:0;overflow:hidden">
-        <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between"><div class="section-title">Saved Listings ({savedIds.size})</div></div>
+        <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <div class="section-title">Wishlist ({savedIds.size})</div>
+          {#if batchSelected.size > 0}
+            <div style="display:flex;gap:8px;align-items:center">
+              <span style="font-size:0.82rem;color:var(--text2)">{batchSelected.size} selected</span>
+              <button class="btn btn-primary btn-sm" onclick={proposeBatch} disabled={batchProposing}>Propose Selected</button>
+              <button class="btn btn-outline btn-sm" onclick={() => batchSelected=new Set()}>Clear</button>
+            </div>
+          {:else}
+            <span style="font-size:0.78rem;color:var(--text3)">Tap ☐ to multi-select</span>
+          {/if}
+        </div>
         {#each listings.filter(l => savedIds.has(l.id)) as l}
-          <button class="listing-row" onclick={() => openListing(l.id)}>
+          <button class="listing-row {batchSelected.has(l.id)?'selected':''}" onclick={() => openListing(l.id)}>
+            <button class="batch-check" onclick={(e)=>{e.stopPropagation();toggleBatchSelect(l.id);}} style="background:none;border:1.5px solid {batchSelected.has(l.id)?'var(--accent)':'var(--border)'};border-radius:6px;width:22px;height:22px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:0.85rem;cursor:pointer;color:{batchSelected.has(l.id)?'var(--accent)':'var(--text3)'}">
+              {batchSelected.has(l.id)?'✓':''}
+            </button>
             <div style="width:40px;height:40px;background:var(--accent-light);border-radius:var(--radius-sm);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden">
               {#if l.image_data}<img src={l.image_data} alt={l.title} style="width:100%;height:100%;object-fit:cover">{:else}<span style="font-size:1.5rem">{l.emoji}</span>{/if}
             </div>
-            <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:0.93rem">{l.title}</div><div class="text-sm text-muted">by {l.user} · {l.condition}</div></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:0.93rem">{l.title}</div>
+              <div class="text-sm text-muted">by {l.user} · {l.condition}{#if l.view_count>0} · 👁 {l.view_count}{/if}</div>
+            </div>
             <span class="condition-badge" style="background:{conditionColors[l.condition]}18;color:{conditionColors[l.condition]};border-color:{conditionColors[l.condition]}44">{l.condition}</span>
             <button class="btn btn-primary btn-sm" onclick={(e) => { e.stopPropagation(); openListing(l.id); }}>Propose Trade</button>
             <button class="btn btn-outline btn-sm" onclick={(e) => toggleSave(e, l.id)}>Unsave</button>
           </button>
         {/each}
         {#if savedIds.size === 0}<div style="text-align:center;padding:52px 24px;color:var(--text3)"><div style="font-size:2.8rem;margin-bottom:12px">🏷️</div><p>No saved listings yet. Tap 🏷️ on any listing to save it.</p></div>{/if}
+      </div>
+
+    {:else if profileTab === 'history'}
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+          <div class="section-title">Trade History ({tradeHistory.length})</div>
+          {#if tradeHistory.length > 0}<span style="font-size:0.82rem;color:var(--text3)">{tradeHistory.filter(t=>t.status==='completed').length} completed · {tradeHistory.filter(t=>t.status==='cancelled').length} cancelled</span>{/if}
+        </div>
+        {#each tradeHistory as t}
+          <div class="trade-hist-item">
+            <div class="chat-item-avatar" style="border-radius:12px;font-size:0.72rem">{t.status==='completed'?'✅':'❌'}</div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;font-size:0.93rem">{t.item}</div>
+              <div class="text-sm text-muted">with {t.with}{t.created_at ? ` · ${new Date(t.created_at).toLocaleDateString([],{month:'short',day:'numeric',year:'numeric'})}` : ''}</div>
+            </div>
+            <span class="tag {t.status==='completed'?'green':''}" style="flex-shrink:0;text-transform:capitalize">{t.status}</span>
+            {#if t.status==='completed'}<span style="font-size:0.78rem;color:#10b981;font-weight:600;white-space:nowrap">+5 kg CO₂</span>{/if}
+          </div>
+        {/each}
+        {#if tradeHistory.length === 0}
+          <div style="text-align:center;padding:52px 24px;color:var(--text3)">
+            <div style="font-size:2.8rem;margin-bottom:12px">📋</div>
+            <p style="font-size:0.9rem">No completed or cancelled trades yet.</p>
+          </div>
+        {/if}
       </div>
 
     {:else if profileTab === 'edit'}
@@ -1134,7 +1271,16 @@
 <div class="modal-overlay {modals.listingDetail&&selectedListing?'open':''}" onclick={closeModals}>
   {#if selectedListing}
     <div class="modal" style="max-width:600px">
-      <div class="modal-header"><div class="modal-title">{selectedListing.title}</div><button class="close-btn" onclick={() => modals.listingDetail=false}>×</button></div>
+      <div class="modal-header">
+        <div>
+          <div class="modal-title">{selectedListing.title}</div>
+          {#if selectedListing.view_count > 0}<div style="font-size:0.76rem;color:var(--text3);margin-top:2px">👁 {selectedListing.view_count} views</div>{/if}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-outline btn-sm" onclick={() => shareListing(selectedListing)} title="Copy link">🔗 Share</button>
+          <button class="close-btn" onclick={() => modals.listingDetail=false}>×</button>
+        </div>
+      </div>
 
       <div style="position:relative;font-size:4.5rem;text-align:center;padding:24px;background:linear-gradient(135deg,var(--accent-light),var(--surface2));border-radius:var(--radius-sm);margin-bottom:16px;overflow:hidden">
         {#if selectedListing.image_data}
