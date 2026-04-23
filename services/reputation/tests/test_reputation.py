@@ -57,6 +57,9 @@ rep_main.SessionLocal = TestSession
 
 from main import app, calculate_eigentrust
 
+# Disable rate limiting so tests don't accumulate against the per-minute limits
+app.state.limiter._enabled = False
+
 client = TestClient(app)
 
 

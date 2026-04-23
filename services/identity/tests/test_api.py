@@ -49,6 +49,9 @@ def override_get_db():
 
 app.dependency_overrides[get_db] = override_get_db
 
+# Disable rate limiting so tests don't hit the 5/minute register limit
+app.state.limiter._enabled = False
+
 client = TestClient(app)
 
 
