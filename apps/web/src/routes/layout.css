@@ -551,3 +551,104 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* ── Listing row selected state ──────────────────────────────────── */
 .listing-row.selected { background: var(--accent-light); }
+
+/* ── Bottom mobile navigation ────────────────────────────────────── */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: rgba(255,255,255,0.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid var(--border);
+  z-index: 100;
+  padding: 6px 0 max(6px, env(safe-area-inset-bottom));
+  justify-content: space-around;
+}
+.bottom-nav-btn {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  background: none; border: none; cursor: pointer; padding: 6px 4px;
+  font-size: 0.64rem; font-weight: 600; color: var(--text3); transition: color 0.15s;
+  position: relative;
+}
+.bottom-nav-btn .bn-icon { font-size: 1.35rem; line-height: 1; }
+.bottom-nav-btn.active { color: var(--accent); }
+.bottom-nav-btn .badge { position: absolute; top: 2px; right: calc(50% - 18px); }
+
+/* ── Mobile responsive ───────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Nav: hide links, reduce padding */
+  nav { padding: 0 14px; gap: 10px; }
+  .nav-links { display: none; }
+  .logo { font-size: 1.1rem; }
+
+  /* Body: reserve space for bottom nav */
+  body { padding-bottom: 70px; }
+
+  /* Show bottom nav */
+  .bottom-nav { display: flex; }
+
+  /* Pages */
+  .page { padding: 14px 14px 0; }
+
+  /* Hero */
+  .hero { padding: 40px 16px 32px; margin-bottom: 28px; }
+  .hero h1 { font-size: 2.2rem; letter-spacing: -1.2px; }
+  .hero p { font-size: 0.96rem; margin-bottom: 28px; }
+  .hero-btns { flex-direction: column; align-items: stretch; }
+  .hero-btns .btn { width: 100%; }
+
+  /* Filters */
+  .filters { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; gap: 6px; scrollbar-width: none; }
+  .filters::-webkit-scrollbar { display: none; }
+  .search-input { width: 100%; min-width: 180px; flex-shrink: 0; }
+
+  /* Card grid */
+  .card-grid { grid-template-columns: 1fr; gap: 14px; }
+
+  /* Cards / modals */
+  .card { padding: 18px; }
+  .modal-overlay.open { align-items: flex-end; }
+  .modal {
+    width: 100%; max-width: 100%;
+    border-radius: var(--radius) var(--radius) 0 0;
+    max-height: 88vh;
+    padding: 20px 18px;
+  }
+
+  /* Toast */
+  .toast { left: 12px; right: 12px; bottom: 80px; max-width: none; }
+
+  /* Chat: stack sidebar + main, show one at a time */
+  .chat-layout {
+    flex-direction: column;
+    height: auto;
+    min-height: calc(100dvh - 140px);
+    border-radius: var(--radius-sm);
+  }
+  .chat-sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border); }
+  .chat-layout.has-active-chat .chat-sidebar { display: none; }
+  .chat-layout:not(.has-active-chat) .chat-main { display: none; }
+  .chat-messages { padding: 16px; gap: 14px; }
+  .chat-input-area { padding: 12px 14px; }
+  .chat-header { padding: 14px 16px; flex-wrap: wrap; gap: 10px; }
+  .chat-header-actions { width: 100%; }
+  #chat-back-btn { display: flex; }
+
+  /* Profile */
+  .profile-header { flex-direction: column; gap: 14px; }
+  .profile-card-body-new { flex-direction: column; align-items: center; text-align: center; padding: 0 16px 20px; }
+  .profile-stats-row { padding: 14px 16px; }
+  .profile-subtabs { width: 100%; }
+  .stat-row { justify-content: center; gap: 16px; }
+
+  /* Section header */
+  .section-header { flex-wrap: wrap; gap: 6px; }
+
+  /* Service error banner */
+  .service-error-banner { padding: 8px 14px; font-size: 0.8rem; }
+}
+
+@media (min-width: 641px) {
+  .bottom-nav { display: none !important; }
+}

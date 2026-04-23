@@ -756,6 +756,23 @@
   </div>
 </nav>
 
+<nav class="bottom-nav" aria-label="Mobile navigation">
+  <button class="bottom-nav-btn {currentPage==='browse'?'active':''}" onclick={() => setPage('browse')}>
+    <span class="bn-icon">🏪</span>Browse
+  </button>
+  <button class="bottom-nav-btn {currentPage==='chat'?'active':''}" onclick={() => setPage('chat')}>
+    <span class="bn-icon">💬</span>Negotiate
+    {#if pendingMatchCount > 0}<span class="badge">{pendingMatchCount}</span>{/if}
+  </button>
+  <button class="bottom-nav-btn" onclick={() => authState.user ? (setPage('browse'), modals.newListing=true) : goto('/login')}>
+    <span class="bn-icon" style="background:var(--accent);color:#fff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:1.1rem">+</span>
+    Post
+  </button>
+  <button class="bottom-nav-btn {currentPage==='profile'?'active':''}" onclick={() => setPage('profile')}>
+    <span class="bn-icon">👤</span>Profile
+  </button>
+</nav>
+
 {#if authState.serviceError}
 <div class="service-error-banner">
   <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" style="flex-shrink:0"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
@@ -873,7 +890,7 @@
 
 <!-- CHAT -->
 <div class="page {currentPage==='chat'?'active':''}" id="page-chat">
-  <div class="chat-layout">
+  <div class="chat-layout {activeChatId ? 'has-active-chat' : ''}">
     <div class="chat-sidebar">
       <div class="chat-sidebar-header">Negotiations</div>
       {#each chats as c}
@@ -896,12 +913,13 @@
     <div class="chat-main" id="chat-main">
       {#if activeChatId && activeChat}
         <div class="chat-header">
+          <button class="btn btn-outline btn-sm" onclick={() => activeChatId = null} style="display:none" aria-label="Back" id="chat-back-btn">← Back</button>
           <div class="chat-item-avatar">{activeChat.initials}</div>
           <div>
             <div style="font-weight:700;font-size:0.95rem">{activeChat.with}</div>
             <div class="text-sm text-muted">{activeChat.item}</div>
           </div>
-          <div style="margin-left:auto;display:flex;gap:8px">
+          <div class="chat-header-actions" style="margin-left:auto;display:flex;gap:8px">
             <button class="btn btn-outline btn-sm" onclick={() => showScheduler = showScheduler === activeChatId ? null : activeChatId}>
               📅 {activeChat.scheduledAt ? 'Reschedule' : 'Schedule'}
             </button>
