@@ -20,7 +20,7 @@ certificatesResolvers:
   le:
     acme:
       tlsChallenge: {}
-      email: "${ACME_EMAIL}"
+      email: "mandip.amgain123@gmail.com"
       storage: /letsencrypt/acme.json
 
 providers:
