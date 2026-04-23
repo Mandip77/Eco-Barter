@@ -97,6 +97,15 @@
   let settingsPublic = $state(true);
   let settingsEcoAlerts = $state(true);
 
+  // ── Theme ─────────────────────────────────────────────────────────
+  let isDark = $state(false);
+
+  function toggleTheme() {
+    isDark = !isDark;
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+    localStorage.setItem('theme', isDark ? 'dark' : 'light');
+  }
+
   const avatarEmojis = ['🌿','🌱','🦋','🌸','🍃','🌍','♻️','🌲','🌻','🐝','💚','🦺','🌊','🔆','✨','🎯','🚀','🦁','🐻','🦊'];
   const avatarColors = ['#16a34a','#0d9488','#2563eb','#7c3aed','#db2777','#ea580c','#ca8a04','#64748b'];
   const conditionColors: Record<string, string> = { 'New': '#10b981', 'Like New': '#16a34a', 'Good': '#2563eb', 'Fair': '#f59e0b', 'Poor': '#ef4444' };
@@ -617,6 +626,12 @@
   }
 
   onMount(async () => {
+    // Restore theme preference
+    const savedTheme = localStorage.getItem('theme') ||
+      (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    isDark = savedTheme === 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+
     // Restore profile customization
     profileEmoji = localStorage.getItem('profile_emoji') || '';
     profileBio = localStorage.getItem('profile_bio') || '';
@@ -723,6 +738,9 @@
     <button class="nav-btn {currentPage==='profile'?'active':''}" onclick={() => setPage('profile')}>Profile</button>
   </div>
   <div class="nav-right">
+    <button class="theme-toggle" onclick={toggleTheme} title={isDark ? 'Switch to light mode' : 'Switch to dark mode'} aria-label="Toggle theme">
+      {isDark ? '☀️' : '🌙'}
+    </button>
     {#if authState.user}
       <button class="btn btn-primary btn-sm" onclick={() => modals.newListing = true}>+ New Listing</button>
       <div class="avatar-wrap">
