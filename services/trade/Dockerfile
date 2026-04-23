@@ -1,5 +1,8 @@
-# Build stage
-FROM golang:1.23-alpine AS builder
+# Build stage — vulnerabilities here don't reach the runtime image (multi-stage build)
+FROM golang:1.25-alpine AS builder
+
+# Patch all Alpine packages so the builder layer passes security scans
+RUN apk upgrade --no-cache
 
 WORKDIR /app
 COPY go.mod go.sum ./
