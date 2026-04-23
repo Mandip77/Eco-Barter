@@ -249,7 +249,7 @@ func main() {
 	})
 
 	go func() {
-		if err := r.Run(":80"); err != nil {
+		if err := r.Run(":8000"); err != nil {
 			log.Fatalf("Gin server failed: %v", err)
 		}
 	}()

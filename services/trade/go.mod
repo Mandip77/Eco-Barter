@@ -1,15 +1,15 @@
 module ecobarter/trade
 
-go 1.25
+go 1.23
 
 require (
-	github.com/gin-gonic/gin v1.12.0
+	github.com/gin-gonic/gin v1.10.0
 	github.com/glebarez/sqlite v1.11.0
-	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/nats-io/nats.go v1.50.0
-	gorm.io/datatypes v1.2.7
-	gorm.io/driver/postgres v1.5.0
-	gorm.io/gorm v1.31.1
+	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/nats-io/nats.go v1.34.1
+	gorm.io/datatypes v1.2.1
+	gorm.io/driver/postgres v1.5.7
+	gorm.io/gorm v1.25.12
 )
 
 require (
