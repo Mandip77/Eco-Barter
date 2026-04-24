@@ -15,7 +15,8 @@ EcoBarter lets people trade goods and skills directly — no currency involved. 
 - **Real-time coordination** — Centrifugo WebSocket hub pushes trade match alerts and chat messages instantly to all participants
 - **QR handoff verification** — Each participant generates a QR code at the physical swap point; scanning it calls the verification API to mark their leg complete
 - **CO₂ impact tracking** — Estimates kg of CO₂ saved per completed trade and surfaces it on each user's profile
-- **Production-hardened** — Non-root containers, distroless Go runtime, env-driven secrets, CORS lockdown, per-endpoint rate limiting, Traefik TLS with HSTS
+- **Mobile-ready** — Fully responsive layout with a bottom navigation bar, bottom-sheet modals, and touch-optimised chat
+- **Production-hardened** — Non-root containers, distroless Go runtime, env-driven secrets, CORS lockdown, per-endpoint rate limiting, Redis token revocation, Traefik TLS with HSTS
 
 ---
 
@@ -64,12 +65,12 @@ EcoBarter lets people trade goods and skills directly — no currency involved. 
 | Layer | Technology |
 |---|---|
 | Frontend | SvelteKit 2, Svelte 5, Tailwind CSS 4, Vite 8, Centrifuge.js |
-| Identity | FastAPI, SQLAlchemy, PyJWT, slowapi, PostgreSQL |
+| Identity | FastAPI, SQLAlchemy, PyJWT, slowapi, PostgreSQL, Redis (token revocation) |
 | Catalog | FastAPI, Motor (async), slowapi, MongoDB, NATS |
 | Trade Engine | Go, Gin, GORM, golang-jwt, PostgreSQL |
 | Reputation | FastAPI, SQLAlchemy, EigenTrust power-iteration, PostgreSQL |
 | Real-time | Centrifugo v5, Redis 7 |
-| Messaging | NATS 2.10 JetStream |
+| Messaging | NATS 2.10 JetStream (token-authenticated) |
 | Gateway | Traefik v3.3 |
 | Containers | Docker Compose, distroless runtime (Go), non-root (Python) |
 | Monorepo | Nx, pnpm |
@@ -88,7 +89,7 @@ EcoBarter/
 │           └── routes/
 │               ├── +layout.svelte
 │               ├── +page.svelte       # Marketplace (browse/chat/profile)
-│               ├── layout.css         # Design system
+│               ├── layout.css         # Design system + mobile responsive styles
 │               ├── login/
 │               └── negotiation/       # QR handoff coordination
 ├── services/
@@ -106,6 +107,7 @@ EcoBarter/
 ├── docker-compose.yml         # Base compose (dev + CI)
 ├── docker-compose.prod.yml    # Production overlay (Traefik, TLS, resource limits)
 ├── DEPLOY.md                  # Oracle Cloud free-tier deployment guide
+├── USAGE.md                   # End-user guide (how to trade)
 └── .env.example
 ```
 
@@ -117,15 +119,18 @@ EcoBarter/
 
 - Docker Desktop (or Docker Engine + Compose plugin)
 - Node 20+ and pnpm
-- Go 1.25+ (for running trade service tests locally)
+- Go 1.21+ (for running trade service tests locally)
 
 ### 1. Clone and configure
 
 ```bash
 git clone https://github.com/Mandip77/Eco-Barter.git
-cd ecobarter
+cd Eco-Barter
 cp .env.example .env
-# Edit .env with your local values — see .env.example for all required fields
+# Edit .env — fill in all required fields including NATS_AUTH_TOKEN
+# Quick secret generation:
+python -c "import secrets; print('JWT_SECRET=' + secrets.token_hex(32))"
+python -c "import secrets; print('NATS_AUTH_TOKEN=' + secrets.token_hex(32))"
 ```
 
 ### 2. Install frontend dependencies
@@ -139,8 +144,6 @@ pnpm install
 ```bash
 docker compose up -d --build
 ```
-
-The base compose exposes Traefik's dashboard at `http://localhost:8080` and all services via `http://localhost`.
 
 ### 4. Run database migrations
 
@@ -158,6 +161,13 @@ pnpm --filter web dev
 ```
 
 The app is available at `http://localhost:5173`.
+
+To test on a mobile device on the same Wi-Fi network:
+
+```bash
+pnpm --filter web dev -- --host
+# Then open the displayed Network URL on your phone
+```
 
 ---
 
@@ -178,33 +188,35 @@ Validate before deploying:
 bash -c 'set -a; source .env; set +a; bash scripts/validate_env.sh'
 ```
 
-All 12 required variables are checked for presence and weak/default values. JWT secret is checked for minimum 64-character length.
+All required variables are checked for presence and weak/default values. `JWT_SECRET` is checked for minimum 64-character length.
 
 ---
 
 ## Environment Variables
 
-| Variable | Description |
-|---|---|
-| `POSTGRES_USER` | PostgreSQL username |
-| `POSTGRES_PASSWORD` | PostgreSQL password |
-| `POSTGRES_DB` | PostgreSQL database name |
-| `POSTGRES_URL` | Full connection string for Python services |
-| `POSTGRES_DSN` | DSN string for Go trade engine |
-| `MONGO_INITDB_ROOT_USERNAME` | MongoDB root username |
-| `MONGO_INITDB_ROOT_PASSWORD` | MongoDB root password |
-| `CATALOG_MONGO_URL` | Full MongoDB connection string |
-| `JWT_SECRET` | HS256 signing secret — minimum 64 hex characters |
-| `CENTRIFUGO_SECRET` | Centrifugo token secret |
-| `CENTRIFUGO_API_KEY` | Centrifugo server API key |
-| `CENTRIFUGO_ADMIN_PASSWORD` | Centrifugo admin UI password |
-| `NATS_URL` | NATS server URL (`nats://nats:4222`) |
-| `DOMAIN` | Production domain (e.g. `ecobarter.example.com`) |
-| `ACME_EMAIL` | Email for Let's Encrypt certificate registration |
-| `ALLOWED_ORIGINS` | Comma-separated CORS origins |
-| `ORIGIN` | SvelteKit origin URL — required for production (e.g. `https://ecobarter.man-dip.dev`) |
-| `ANTHROPIC_API_KEY` | Enables AI trade suggestions in the catalog service (optional) |
-| `VITE_API_BASE_URL` | API base URL injected into the frontend build |
+| Variable | Required | Description |
+|---|---|---|
+| `POSTGRES_USER` | Yes | PostgreSQL username |
+| `POSTGRES_PASSWORD` | Yes | PostgreSQL password |
+| `POSTGRES_DB` | Yes | PostgreSQL database name |
+| `POSTGRES_URL` | Yes | Full connection string for Python services |
+| `POSTGRES_DSN` | Yes | DSN string for Go trade engine |
+| `MONGO_INITDB_ROOT_USERNAME` | Yes | MongoDB root username |
+| `MONGO_INITDB_ROOT_PASSWORD` | Yes | MongoDB root password |
+| `CATALOG_MONGO_URL` | Yes | Full MongoDB connection string |
+| `JWT_SECRET` | Yes | HS256 signing secret — minimum 64 hex characters |
+| `NATS_AUTH_TOKEN` | Yes | Token for NATS JetStream authentication |
+| `REDIS_URL` | Yes | Redis connection URL (`redis://redis:6379`) |
+| `CENTRIFUGO_SECRET` | Yes | Centrifugo token secret |
+| `CENTRIFUGO_API_KEY` | Yes | Centrifugo server API key |
+| `CENTRIFUGO_ADMIN_PASSWORD` | Yes | Centrifugo admin UI password |
+| `NATS_URL` | Yes | NATS server URL (`nats://nats:4222`) |
+| `ALLOWED_ORIGINS` | Prod | Comma-separated CORS origins |
+| `DOMAIN` | Prod | Production domain (e.g. `ecobarter.example.com`) |
+| `ACME_EMAIL` | Prod | Email for Let's Encrypt certificate registration |
+| `ORIGIN` | Prod | SvelteKit origin URL (e.g. `https://ecobarter.man-dip.dev`) |
+| `ANTHROPIC_API_KEY` | Optional | Enables AI trade suggestions in the catalog service |
+| `VITE_API_BASE_URL` | Yes | API base URL injected into the frontend build |
 
 See `.env.example` for a complete annotated template.
 
@@ -212,7 +224,7 @@ See `.env.example` for a complete annotated template.
 
 ## Trade Matching
 
-The trade engine listens on NATS for `catalog.preference.updated` events published whenever a user lists an item or updates what they want. On each event it attempts to find a match in order:
+The trade engine listens on NATS for `item.preference.updated` events published whenever a user lists an item or updates what they want. On each event it attempts to find a match in order:
 
 1. **K=2** — Direct swap: user A has what B wants, B has what A wants
 2. **K=3** — Three-way ring: A→B→C→A
@@ -241,16 +253,26 @@ Each completed trade contributes to a user's EigenTrust score:
 |---|---|---|---|
 | `POST` | `/api/v1/auth/register` | Identity | — |
 | `POST` | `/api/v1/auth/login` | Identity | — |
+| `POST` | `/api/v1/auth/logout` | Identity | Bearer |
 | `GET` | `/api/v1/auth/me` | Identity | Bearer |
+| `PUT` | `/api/v1/auth/password` | Identity | Bearer |
+| `DELETE` | `/api/v1/auth/account` | Identity | Bearer |
 | `GET` | `/api/v1/catalog/products` | Catalog | — |
 | `POST` | `/api/v1/catalog/products` | Catalog | Bearer |
+| `PUT` | `/api/v1/catalog/products/:id` | Catalog | Bearer |
+| `DELETE` | `/api/v1/catalog/products/:id` | Catalog | Bearer |
 | `POST` | `/api/v1/catalog/products/:id/image` | Catalog | Bearer |
+| `POST` | `/api/v1/catalog/products/:id/suggest` | Catalog | Bearer |
 | `GET` | `/api/v1/trade/proposals` | Trade | Bearer |
 | `POST` | `/api/v1/trade/verify` | Trade | Bearer |
 | `POST` | `/api/v1/trade/message` | Trade | Bearer |
-| `GET` | `/api/v1/reputation/:username` | Reputation | — |
-| `GET` | `/api/v1/reputation/leaderboard` | Reputation | — |
-| `WS` | `/connection/websocket` | Centrifugo | — |
+| `POST` | `/api/v1/trade/counter` | Trade | Bearer |
+| `GET` | `/api/v1/reputation/:user_id` | Reputation | Bearer |
+| `GET` | `/api/v1/reputation/leaderboard` | Reputation | Bearer |
+| `GET` | `/api/v1/reputation/global` | Reputation | Bearer |
+| `POST` | `/api/v1/reputation/reviews` | Reputation | Bearer |
+| `GET` | `/api/v1/reputation/reviews/:user_id` | Reputation | Bearer |
+| `WS` | `/connection/websocket` | Centrifugo | Bearer |
 
 Rate limits: 5 req/min (register), 10 req/min (login), 30 req/min (catalog write), 60 req/min (trade).
 
@@ -302,20 +324,34 @@ pnpm --filter web check
 
 - All containers run as non-root users; the Go runtime uses `gcr.io/distroless/static-debian12:nonroot`
 - Secrets are environment-variable only — never in source or Docker images
+- Services refuse to start if any required secret (`JWT_SECRET`, `DB_URL`, `MONGO_URL`) is unset
+- JWT tokens embed a `jti` claim; logout immediately revokes the token in Redis for its remaining lifetime
+- Token lifetime is 24 hours
+- Passwords require a minimum of 8 characters with at least one letter and one digit
+- NATS JetStream requires a shared auth token — no unauthenticated message injection
 - CORS is locked to `ALLOWED_ORIGINS` in production
-- Traefik enforces HSTS (1 year, preload), removes `Server` and `X-Powered-By` headers, sets `Permissions-Policy`
-- JWT uses HS256 with a minimum 64-character secret; the Go service hard-fails at startup if `JWT_SECRET` is unset
+- Review submissions verify the reviewer participated in a completed trade; duplicates are rejected
+- Traefik enforces HSTS (1 year, preload), removes `Server` and `X-Powered-By` headers
 - Rate limiting on all mutation endpoints via `slowapi` (Python) and a fixed-window per-IP middleware (Go)
 
 To report a security vulnerability, please email the maintainers directly rather than opening a public issue.
 
 ---
 
+## User Guide
+
+See **[USAGE.md](USAGE.md)** for a full walkthrough of how to use EcoBarter — from creating an account to completing your first trade.
+
+---
+
 ## Contributing
 
-1. Fork the repository and create a feature branch
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the full contribution guide, code standards, and good first issues.
+
+Quick checklist:
+1. Fork the repository and create a feature branch off `main`
 2. Run `bash scripts/validate_env.sh` and all service tests before opening a PR
-3. Keep each service self-contained — shared logic belongs in the service that owns the data, not in a shared library
+3. Keep each service self-contained — no cross-service imports
 4. PRs that touch the trade matching engine must include tests in `services/trade/main_test.go`
 
 ---

@@ -2,7 +2,7 @@
 
 Thanks for your interest in EcoBarter — a sustainable, money-free goods exchange platform. Whether you want to fix a bug, build a feature, improve docs, or just share feedback, every contribution matters.
 
-**Live site:** https://ecobarter.man-dip.dev  
+**Live site:** https://ecobarter.man-dip.dev
 **GitHub:** https://github.com/Mandip77/Eco-Barter
 
 ---
@@ -40,41 +40,66 @@ You don't have to write code to contribute:
 
 ## Getting Started
 
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or Docker Engine + Compose plugin)
+- [Node.js 20+](https://nodejs.org/) and [pnpm](https://pnpm.io/)
+- [Go 1.21+](https://go.dev/dl/) — only needed if you're working on the trade engine locally
+- Python 3.11+ — only needed if running service tests outside Docker
+
 ### 1. Fork and clone
 
 ```bash
 git clone https://github.com/<your-username>/Eco-Barter.git
 cd Eco-Barter
 cp .env.example .env
-# Fill in values — see .env.example for guidance
 ```
 
-### 2. Install dependencies
+### 2. Fill in your `.env`
+
+The app will not start with missing secrets. At minimum, generate the required tokens:
 
 ```bash
-# Frontend
-pnpm install
+# Run the helper script (recommended)
+bash scripts/generate_secrets.sh
 
-# Python services (pick the one you're working on)
-cd services/identity && pip install -r requirements-test.txt
-cd services/catalog  && pip install -r requirements-test.txt
-cd services/reputation && pip install -r requirements-test.txt
-
-# Go trade engine
-cd services/trade && go mod download
+# Or generate individually
+python -c "import secrets; print('JWT_SECRET=' + secrets.token_hex(32))"
+python -c "import secrets; print('NATS_AUTH_TOKEN=' + secrets.token_hex(32))"
 ```
 
-### 3. Start the full stack
+Paste the output into your `.env`. See `.env.example` for all required variables and descriptions.
+
+### 3. Install frontend dependencies
+
+```bash
+pnpm install
+```
+
+### 4. Start the full stack
 
 ```bash
 docker compose up -d --build
 ```
 
-The SvelteKit dev server with hot reload:
+Services start in dependency order. PostgreSQL and MongoDB health checks must pass before application services start.
+
+### 5. Run database migrations
+
+```bash
+# Identity service (PostgreSQL)
+docker compose exec identity-service alembic upgrade head
+
+# Trade engine migrations run automatically on startup
+```
+
+### 6. Start the frontend dev server
 
 ```bash
 pnpm --filter web dev   # http://localhost:5173
 ```
+
+Changes to the frontend hot-reload instantly. Backend changes require a container rebuild (`docker compose up -d --build <service-name>`).
 
 ---
 
@@ -82,32 +107,41 @@ pnpm --filter web dev   # http://localhost:5173
 
 ```
 services/
-  identity/     # FastAPI — user registration, login, JWT (Python)
+  identity/     # FastAPI — user registration, login, JWT, password management (Python)
   catalog/      # FastAPI — product listings, image upload, AI suggestions (Python)
-  trade/        # Gin — K-way circular trade matching engine (Go)
-  reputation/   # FastAPI — EigenTrust scoring, leaderboard (Python)
+  trade/        # Gin — K-way circular trade matching engine, QR verification (Go)
+  reputation/   # FastAPI — EigenTrust scoring, reviews, leaderboard (Python)
 apps/
   web/          # SvelteKit 2 + Svelte 5 + Tailwind 4 frontend
-traefik/        # Reverse proxy config (routing rules, TLS)
-scripts/        # Secret generation, environment validation
+scripts/        # Secret generation and environment validation
+centrifugo_config.json   # Real-time WebSocket hub configuration
+docker-compose.yml       # Base compose (dev + CI)
+docker-compose.prod.yml  # Production overlay (Traefik TLS, resource limits)
 ```
 
-Each service is fully self-contained with its own `Dockerfile`, `requirements*.txt` or `go.mod`, and `tests/` directory.
+Each service is fully self-contained with its own `Dockerfile`, `requirements.txt` or `go.mod`, and `tests/` directory. There are no shared libraries between services — communication is via HTTP or NATS.
 
 ---
 
 ## Development Workflow
 
-1. Create a branch from `main`:
+1. **Create a branch** from `main`:
    ```bash
    git checkout -b feat/your-feature-name
+   # or
+   git checkout -b fix/the-bug-you-are-fixing
    ```
 
-2. Make your changes. Keep commits focused — one logical change per commit.
+2. **Make your changes.** Keep commits focused — one logical change per commit.
 
-3. Run tests locally before pushing (see [Testing](#testing)).
+3. **Validate your environment** if you changed any service startup code:
+   ```bash
+   bash -c 'set -a; source .env; set +a; bash scripts/validate_env.sh'
+   ```
 
-4. Push and open a Pull Request against `main`.
+4. **Run tests** locally before pushing (see [Testing](#testing)).
+
+5. **Push and open a Pull Request** against `main`.
 
 CI runs automatically on every PR. It must pass before merging.
 
@@ -116,26 +150,40 @@ CI runs automatically on every PR. It must pass before merging.
 ## Code Guidelines
 
 ### General
+
 - Prefer editing existing files over creating new ones
-- Don't add abstractions or error-handling that the current code doesn't need
+- Don't add abstractions or error handling that the current code doesn't need
 - Keep each service self-contained — no cross-service imports
+- Don't hardcode secrets, connection strings, or environment-specific values — use `os.getenv()` / `os.Getenv()` and fail fast if the variable is missing
 
 ### Python (Identity / Catalog / Reputation)
+
 - Use Pydantic models for all request/response schemas
-- Type-hint function signatures
+- Type-hint all function signatures
 - Use `slowapi` for rate limiting — follow the existing per-endpoint pattern
-- Format with `black` and lint with `ruff` if you have them; CI does not enforce a formatter but keep diffs readable
+- Use `Depends(get_current_user_id)` on any endpoint that requires authentication
+- Format with `black` and lint with `ruff` if you have them installed; CI does not enforce a formatter, but keep diffs readable
 
 ### Go (Trade Engine)
-- `gofmt` before committing — CI runs `gofmt -l` and fails on diff
-- Keep functions short and well-named; avoid comments that just restate the function name
+
+- `gofmt` before committing — CI runs `gofmt -l` and fails on a diff
+- Keep functions short and well-named; avoid comments that restate the function name
 - All new matching logic must have a corresponding test in `main_test.go`
-- Use `go vet` clean output
+- Use `go vet` — clean output required
 
 ### SvelteKit / Svelte 5
+
 - Use Svelte 5 runes (`$state`, `$derived`, `$effect`) — no legacy `writable` stores in new code
-- Tailwind classes over scoped `<style>` blocks unless structurally necessary
+- Tailwind utility classes over scoped `<style>` blocks unless structurally necessary
 - TypeScript for all new `.ts` and `.svelte` files
+- Mobile-first: test new UI at 375px width before submitting
+
+### Security
+
+- Never fall back to hardcoded secrets — if an env var is missing the service should crash loudly
+- New endpoints that modify data must require authentication (`Depends(get_current_user_id)`)
+- New endpoints that expose user-identifying data (UUIDs, emails) must require authentication
+- File uploads must validate content type and enforce a size limit
 
 ---
 
@@ -144,22 +192,29 @@ CI runs automatically on every PR. It must pass before merging.
 Run tests before opening a PR:
 
 ```bash
-# Identity
-cd services/identity && pytest tests/
+# Identity service
+docker compose exec identity-service pytest tests/ -v
 
-# Reputation
-cd services/reputation && pytest tests/
+# Reputation service
+docker compose exec reputation-service pytest tests/ -v
 
-# Trade Engine
-cd services/trade && go test ./... -race
+# Trade Engine (uses SQLite in-memory, no containers needed)
+cd services/trade
+go test -tags test ./... -race
 
 # Frontend type check
 pnpm --filter web check
 ```
 
-Tests use SQLite in-memory databases — no running containers required for Python services.
+Tests for Python services use SQLite in-memory databases — no running Docker containers are required if you install the test requirements locally:
 
-If you're adding a new endpoint, add a corresponding test. If you're fixing a bug, add a test that would have caught it.
+```bash
+cd services/identity && pip install -r requirements-test.txt && pytest tests/
+```
+
+**If you are adding a new endpoint:** add a corresponding test.
+**If you are fixing a bug:** add a test that would have caught it.
+**If you are touching the trade matcher:** add or update a test in `services/trade/main_test.go`.
 
 ---
 
@@ -168,10 +223,10 @@ If you're adding a new endpoint, add a corresponding test. If you're fixing a bu
 1. Make sure CI passes (build, lint, tests)
 2. Write a clear PR description:
    - **What** changed
-   - **Why** (link to issue if one exists)
+   - **Why** (link to the issue if one exists)
    - **How to test** it manually
 3. Keep PRs focused — separate unrelated changes into separate PRs
-4. If your change is a large architectural addition (new service, new DB, etc.), open a Discussion or Issue labeled `RFC` first and wait for feedback
+4. If your change is a large architectural addition (new service, new database, new auth flow), open a Discussion or Issue labeled `RFC` first and allow 48 hours for feedback before building
 
 ---
 
@@ -179,13 +234,16 @@ If you're adding a new endpoint, add a corresponding test. If you're fixing a bu
 
 Not sure where to start? Look for issues labeled [`good first issue`](https://github.com/Mandip77/Eco-Barter/issues?q=label%3A%22good+first+issue%22) on GitHub.
 
-Some areas that are always welcome:
+Areas that are always welcome:
 
-- **Frontend polish** — responsive layout improvements, loading states, empty states
-- **Test coverage** — catalog service has no tests yet
-- **Docs** — improve inline comments, API docs, or the deployment guide
-- **Accessibility** — keyboard navigation, ARIA labels, contrast ratios
-- **Performance** — MongoDB index optimization, query profiling
+| Area | Ideas |
+|---|---|
+| **Frontend** | Loading skeleton states, empty state illustrations, better error messages |
+| **Accessibility** | Keyboard navigation, ARIA labels, focus management in modals |
+| **Test coverage** | Catalog service has no tests yet |
+| **Docs** | Improve inline code comments, expand the API reference |
+| **Performance** | MongoDB index review, pagination on the global reputation endpoint |
+| **Mobile UX** | Swipe gestures in chat, pull-to-refresh on listings |
 
 ---
 
