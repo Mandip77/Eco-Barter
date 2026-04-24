@@ -8,3 +8,4 @@ pyjwt
 pydantic[email]
 slowapi
 alembic
+redis

@@ -19,8 +19,10 @@ messaging = Messaging()
 
 async def connect_to_nats():
     logger.info("Connecting to NATS...")
+    nats_token = os.getenv("NATS_AUTH_TOKEN")
+    connect_kwargs = {"servers": NATS_URL, "token": nats_token} if nats_token else {"servers": NATS_URL}
     try:
-        await messaging.nc.connect(NATS_URL)
+        await messaging.nc.connect(**connect_kwargs)
         messaging.js = messaging.nc.jetstream()
         
         # Ensure stream exists

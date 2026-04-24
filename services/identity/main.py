@@ -7,6 +7,13 @@ from sqlalchemy.orm import Session
 from database import engine, Base, get_db
 from models import User, UserCreate, UserLogin, UserResponse, Token
 from pydantic import BaseModel
+from auth import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
+from datetime import datetime, timezone, timedelta
+import jwt
+import time
+import redis as redis_lib
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import os
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
@@ -14,11 +21,8 @@ class ChangePasswordRequest(BaseModel):
 
 class DeleteAccountRequest(BaseModel):
     password: str
-from auth import get_password_hash, verify_password, create_access_token, ACCESS_TOKEN_EXPIRE_MINUTES
-from datetime import timedelta
-import jwt
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import os
+
+_redis = redis_lib.from_url(os.getenv("REDIS_URL", "redis://redis:6379"), decode_responses=True)
 
 Base.metadata.create_all(bind=engine)
 
@@ -43,10 +47,13 @@ security = HTTPBearer()
 def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, os.getenv("JWT_SECRET", "super_secret_dev_key_do_not_use_in_prod"), algorithms=["HS256"])
+        payload = jwt.decode(token, os.getenv("JWT_SECRET"), algorithms=["HS256"])
         user_id: str = payload.get("sub")
-        if user_id is None:
+        jti: str = payload.get("jti")
+        if not user_id or not jti:
             raise HTTPException(status_code=401, detail="Invalid auth token")
+        if _redis.exists(f"revoked:{jti}"):
+            raise HTTPException(status_code=401, detail="Token has been revoked")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid auth token")
 
@@ -86,6 +93,21 @@ def login(request: Request, user_in: UserLogin, db: Session = Depends(get_db)):
         data={"sub": user.id, "username": user.username}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/api/v1/auth/logout", status_code=204)
+def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, os.getenv("JWT_SECRET"), algorithms=["HS256"])
+        jti = payload.get("jti")
+        exp = payload.get("exp")
+        if jti and exp:
+            ttl = int(exp - time.time())
+            if ttl > 0:
+                _redis.setex(f"revoked:{jti}", ttl, "1")
+    except jwt.PyJWTError:
+        pass  # Already invalid — nothing to revoke
+    return Response(status_code=204)
 
 @app.get("/api/v1/auth/me", response_model=UserResponse)
 def read_users_me(current_user: User = Depends(get_current_user)):

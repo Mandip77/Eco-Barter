@@ -62,6 +62,13 @@ export function login(token: string) {
 
 export function logout() {
     if (typeof window !== 'undefined') {
+        const token = localStorage.getItem('auth_token');
+        if (token) {
+            fetch('/api/v1/auth/logout', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+            }).catch(() => {});
+        }
         localStorage.removeItem('auth_token');
     }
     authState.token = null;

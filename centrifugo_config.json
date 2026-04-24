@@ -4,8 +4,8 @@
   "namespaces": [
     {
       "name": "trade_hub",
-      "allow_anonymous": true,
-      "allow_subscribe_for_anonymous": true,
+      "allow_anonymous": false,
+      "allow_subscribe_for_anonymous": false,
       "allow_publish_for_anonymous": false,
       "publish": true,
       "presence": true,

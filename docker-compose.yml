@@ -23,7 +23,7 @@ services:
   # --------------------------------------------------------------------------
   nats:
     image: nats:2.10-alpine
-    command: ["-js"] # Enable JetStream
+    command: ["-js", "--auth", "${NATS_AUTH_TOKEN}"]
     # NATS is internal only. Use port forwarding or an override for external access.
     healthcheck:
       test: ["CMD", "nc", "-z", "localhost", "4222"]
@@ -103,6 +103,7 @@ services:
     environment:
       - MONGO_URL=${CATALOG_MONGO_URL}
       - NATS_URL=${NATS_URL}
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
       - JWT_SECRET=${JWT_SECRET}
     labels:
       - "traefik.enable=true"
@@ -122,6 +123,7 @@ services:
     environment:
       - DB_URL=${POSTGRES_DSN}
       - NATS_URL=${NATS_URL}
+      - NATS_AUTH_TOKEN=${NATS_AUTH_TOKEN}
       - JWT_SECRET=${JWT_SECRET}
     labels:
       - "traefik.enable=true"
@@ -140,6 +142,7 @@ services:
     environment:
       - DB_URL=${POSTGRES_URL}
       - NATS_URL=${NATS_URL}
+      - JWT_SECRET=${JWT_SECRET}
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.reputation.rule=PathPrefix(`/api/v1/reputation`)"

@@ -5,7 +5,10 @@ import pymongo
 
 logger = logging.getLogger(__name__)
 
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://admin:adminpassword@localhost:27017")
+MONGO_URL = os.getenv("MONGO_URL")
+if not MONGO_URL:
+    import sys
+    sys.exit("FATAL: MONGO_URL environment variable is not set. Refusing to start.")
 DB_NAME = "ecobarter_db"
 COLLECTION_NAME = "products"
 

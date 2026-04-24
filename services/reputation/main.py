@@ -1,8 +1,9 @@
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, UniqueConstraint
 from sqlalchemy.orm import sessionmaker, declarative_base
 from datetime import datetime, timezone
 import os
@@ -15,7 +16,19 @@ app = FastAPI(title="EcoBarter Reputation Service")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-DB_URL = os.getenv("DB_URL", "postgresql://ecouser:ecopassword@postgres:5432/ecobarter_db")
+_allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
+DB_URL = os.getenv("DB_URL")
+if not DB_URL:
+    import sys
+    sys.exit("FATAL: DB_URL environment variable is not set. Refusing to start.")
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
@@ -47,6 +60,10 @@ class Review(Base):
     score = Column(Integer)  # 1–5
     comment = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("trade_id", "reviewer_id", "reviewee_id", name="uq_review_per_trade"),
+    )
 
 
 class ReviewCreate(PydanticModel):
@@ -158,7 +175,7 @@ def get_current_user_id(authorization: str = Header(None)) -> str:
     try:
         payload = pyjwt.decode(
             token,
-            os.getenv("JWT_SECRET", "super_secret_dev_key_do_not_use_in_prod"),
+            os.getenv("JWT_SECRET"),
             algorithms=["HS256"],
         )
         user_id = payload.get("sub")
@@ -171,14 +188,13 @@ def get_current_user_id(authorization: str = Header(None)) -> str:
 
 @app.get("/api/v1/reputation/global")
 @limiter.limit("30/minute")
-def get_global_reputation(request: Request):
+def get_global_reputation(request: Request, _: str = Depends(get_current_user_id)):
     return {"scores": calculate_eigentrust()}
 
 
 @app.get("/api/v1/reputation/leaderboard")
 @limiter.limit("30/minute")
-def get_leaderboard(request: Request, limit: int = 10):
-    """Returns top users sorted by EigenTrust score descending."""
+def get_leaderboard(request: Request, limit: int = 10, _: str = Depends(get_current_user_id)):
     if limit < 1 or limit > 100:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 100")
     scores = calculate_eigentrust()
@@ -199,7 +215,7 @@ def get_leaderboard(request: Request, limit: int = 10):
 
 @app.get("/api/v1/reputation/{user_id}")
 @limiter.limit("60/minute")
-def get_user_reputation(request: Request, user_id: str):
+def get_user_reputation(request: Request, user_id: str, _: str = Depends(get_current_user_id)):
     scores = calculate_eigentrust()
     score = scores.get(user_id, 10.0)
     return {
@@ -221,24 +237,50 @@ def submit_review(
         raise HTTPException(status_code=422, detail="Score must be between 1 and 5")
     if reviewer_id == body.reviewee_id:
         raise HTTPException(status_code=400, detail="Cannot review yourself")
+
     db = SessionLocal()
-    review = Review(
-        trade_id=body.trade_id,
-        reviewer_id=reviewer_id,
-        reviewee_id=body.reviewee_id,
-        score=body.score,
-        comment=body.comment[:500] if body.comment else "",
-    )
-    db.add(review)
-    db.commit()
-    db.refresh(review)
-    db.close()
-    return {"id": review.id, "message": "Review submitted"}
+    try:
+        # Verify the trade exists, is completed, and both parties participated
+        proposal = db.query(TradeProposal).filter(
+            TradeProposal.id == body.trade_id,
+            TradeProposal.status == "completed",
+        ).first()
+        if not proposal:
+            raise HTTPException(status_code=404, detail="Completed trade not found")
+
+        participants = {p for p in [proposal.user_a, proposal.user_b, proposal.user_c, proposal.user_d] if p}
+        if reviewer_id not in participants:
+            raise HTTPException(status_code=403, detail="You were not a participant in this trade")
+        if body.reviewee_id not in participants:
+            raise HTTPException(status_code=403, detail="Reviewee was not a participant in this trade")
+
+        # Prevent duplicate reviews
+        existing = db.query(Review).filter_by(
+            trade_id=body.trade_id,
+            reviewer_id=reviewer_id,
+            reviewee_id=body.reviewee_id,
+        ).first()
+        if existing:
+            raise HTTPException(status_code=409, detail="You have already reviewed this user for this trade")
+
+        review = Review(
+            trade_id=body.trade_id,
+            reviewer_id=reviewer_id,
+            reviewee_id=body.reviewee_id,
+            score=body.score,
+            comment=body.comment[:500] if body.comment else "",
+        )
+        db.add(review)
+        db.commit()
+        db.refresh(review)
+        return {"id": review.id, "message": "Review submitted"}
+    finally:
+        db.close()
 
 
 @app.get("/api/v1/reputation/reviews/{user_id}")
 @limiter.limit("60/minute")
-def get_user_reviews(request: Request, user_id: str):
+def get_user_reviews(request: Request, user_id: str, _: str = Depends(get_current_user_id)):
     db = SessionLocal()
     reviews = db.query(Review).filter(Review.reviewee_id == user_id).order_by(Review.created_at.desc()).limit(20).all()
     db.close()

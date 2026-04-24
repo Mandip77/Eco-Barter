@@ -1,8 +1,11 @@
 import os
+import sys
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-DB_URL = os.getenv("DB_URL", "postgresql://ecouser:ecopassword@postgres:5432/ecobarter_db")
+DB_URL = os.getenv("DB_URL")
+if not DB_URL:
+    sys.exit("FATAL: DB_URL environment variable is not set. Refusing to start.")
 
 engine = create_engine(DB_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

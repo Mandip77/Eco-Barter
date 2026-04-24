@@ -8,6 +8,7 @@ from typing import List, Optional
 import jwt
 from bson import ObjectId
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, UploadFile, File, Response as FastAPIResponse
+from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
@@ -39,6 +40,15 @@ app = FastAPI(title="EcoBarter Catalog Service", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+_allowed_origins = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
+
 
 async def get_current_user_id(authorization: str = Header(None)) -> str:
     if not authorization or not authorization.startswith("Bearer "):
@@ -47,7 +57,7 @@ async def get_current_user_id(authorization: str = Header(None)) -> str:
     try:
         payload = jwt.decode(
             token,
-            os.getenv("JWT_SECRET", "super_secret_dev_key_do_not_use_in_prod"),
+            os.getenv("JWT_SECRET"),
             algorithms=["HS256"],
         )
         user_id = payload.get("sub")

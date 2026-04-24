@@ -17,7 +17,12 @@ func initMessaging() {
 	}
 
 	var err error
-	NatsConn, err = nats.Connect(natsURL)
+	natsToken := os.Getenv("NATS_AUTH_TOKEN")
+	var natsOpts []nats.Option
+	if natsToken != "" {
+		natsOpts = append(natsOpts, nats.Token(natsToken))
+	}
+	NatsConn, err = nats.Connect(natsURL, natsOpts...)
 	if err != nil {
 		log.Fatalf("Failed to connect to NATS: %v", err)
 	}
