@@ -1154,7 +1154,7 @@
 <svelte:window onclick={handleWindowClick} />
 
 <svelte:head>
-  <title>EcoBarter — Trade Sustainably, Live Freely</title>
+  <title>EcoBarter, Trade Sustainably, Live Freely</title>
   <meta
     name="description"
     content="EcoBarter is a sustainable marketplace where goods and skills flow freely with no money involved."
@@ -1328,7 +1328,7 @@
         d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
       /></svg
     >
-    Identity service is temporarily unreachable — account features are limited.
+    Identity service is temporarily unreachable, account features are limited.
   </div>
 {/if}
 
@@ -1337,8 +1337,8 @@
   <div class="hero">
     <h1>Trade What You Have,<br /><span>Get What You Need</span></h1>
     <p>
-      EcoBarter is a sustainable marketplace where goods and skills flow freely
-      — no money needed.
+      EcoBarter is a sustainable marketplace where goods and skills flow freely,
+      no money needed.
     </p>
     <div class="hero-btns">
       <button
@@ -1641,7 +1641,7 @@
                 </button>
               {/each}
               {#if myItems.length === 0}<span class="text-muted text-sm"
-                  >No listings to offer — add one first.</span
+                  >No listings to offer, add one first.</span
                 >{/if}
             </div>
             <div style="display:flex;gap:8px">
